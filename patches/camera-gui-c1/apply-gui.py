@@ -37,6 +37,11 @@ def main(s):
    }
   });
  bottom->addWidget(cerro_.get());
+ cerro_->setFocusEnabled(camera_->id().find("/i2c-bus@1/camera@10") != std::string::npos);
+ if (qEnvironmentVariableIsSet("CERRO_CAMERA_FIXED_TEST")) {
+  QTimer::singleShot(5000,this,[this]{saveImageAs();});
+  QTimer::singleShot(5500,this,&MainWindow::quit);
+ }
  const auto &controls = camera_->controls();
  if (controls.count(&libcamera::controls::ExposureTime) && controls.count(&libcamera::controls::AnalogueGain))
   cerro_->configureExposure(controls.at(&libcamera::controls::ExposureTime).min().get<int32_t>(),
@@ -63,7 +68,7 @@ def main(s):
  QAction *exit = toolbar_->addAction(QIcon::fromTheme("application-exit"), QStringLiteral("退出"));
  connect(exit, &QAction::triggered, this, &MainWindow::quit);
  cameraSelectButton_ = new QPushButton(QStringLiteral("后置主摄"), this);
- cameraSelectButton_->setMinimumHeight(44); cameraSelectButton_->hide();
+ cameraSelectButton_->setMinimumHeight(44); cameraSelectButton_->setVisible(cm_->cameras().size() > 1);
  connect(cameraSelectButton_, &QPushButton::clicked, this, &MainWindow::switchCamera);
  if (cm_->cameras().size() > 1) toolbar_->addWidget(cameraSelectButton_);
  auto *photo = new QPushButton(QIcon::fromTheme("camera-photo"), QStringLiteral("拍照"), this);
@@ -143,6 +148,11 @@ def main(s):
   if (camera_->controls().count(&controls::ColourGains))
    request->controls().set(controls::ColourGains, lockedColourGains_);
  }''')
+ s=s.replace('cameraSelectButton_->setText(QStringLiteral("后置主摄"));',
+  'cameraSelectButton_->setText(camera_->id().find("front@10") != std::string::npos ? QStringLiteral("前置相机") : QStringLiteral("后置主摄"));')
+ anchor='int MainWindow::startCapture()\n{'
+ assert anchor in s
+ s=s.replace(anchor,anchor+'\n if (cerro_) cerro_->setFocusEnabled(camera_->id().find("/i2c-bus@1/camera@10") != std::string::npos);')
  return s
 edit('src/apps/qcam/main_window.cpp',main)
 def zoom(s):

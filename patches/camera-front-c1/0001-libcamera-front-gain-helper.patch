@@ -1,0 +1,23 @@
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -725,6 +725,20 @@
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("ov01a10", CameraSensorHelperOv01a10)
+ 
++/* Cerro OV12D2Q: native register units256=1x (Rockchip128-code API shifts1).
++ * Android static black level64/10bits, represented at16bit scale.
++ */
++class CameraSensorHelperOv12d2qCerro : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperOv12d2qCerro()
++	{
++		blackLevel_ = 4096;
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 256 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("ov12d2q-cerro", CameraSensorHelperOv12d2qCerro)
++
+ class CameraSensorHelperOv08d10 : public CameraSensorHelper
+ {
+ public:

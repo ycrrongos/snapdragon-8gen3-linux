@@ -107,8 +107,18 @@ bool CerroControls::move(int position)
  v4l2_control readback{V4L2_CID_FOCUS_ABSOLUTE, 0};
  return ::ioctl(lens_, VIDIOC_G_CTRL, &readback) == 0 && readback.value == position;
 }
+void CerroControls::setFocusEnabled(bool enabled)
+{
+ stop();
+ focusEnabled_ = enabled && lens_ >= 0 && minimum_ > 0 && maximum_ > minimum_;
+ autoButton_->setEnabled(focusEnabled_);
+ focusSlider_->setEnabled(focusEnabled_);
+ autoButton_->setText(focusEnabled_ ? QStringLiteral("自动对焦") : QStringLiteral("固定焦点"));
+ frames_ = 0; initial_ = false;
+}
 void CerroControls::manual(int percent)
 {
+ if (!focusEnabled_) return;
  stop(); initial_ = true;
  if (!move(minimum_ + (maximum_ - minimum_) * percent / 100))
   status_(QStringLiteral("对焦调整失败"));
@@ -116,7 +126,7 @@ void CerroControls::manual(int percent)
 }
 void CerroControls::autofocus()
 {
- if (lens_ < 0 || focusing_) return;
+ if (!focusEnabled_ || lens_ < 0 || focusing_) return;
  v4l2_control control{V4L2_CID_FOCUS_ABSOLUTE, 0};
  if (::ioctl(lens_, VIDIOC_G_CTRL, &control) < 0) return;
  original_ = control.value; best_ = original_; bestScore_ = -1;

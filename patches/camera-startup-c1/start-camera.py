@@ -54,13 +54,13 @@ def graph_ready():
         driver = device / 'driver'
         if driver.exists():
             bound[driver.resolve().name] = True
-    if not all(bound.get(name) for name in ('imx800-cerro', 'ak7316-cerro')):
+    if not all(bound.get(name) for name in ('imx800-cerro', 'ak7316-cerro', 'ov12d2q-cerro')):
         return False
     if not Path('/sys/bus/platform/devices/acb6000.isp/driver').exists():
         return False
     for media in Path('/dev').glob('media*'):
         topology = command(['/usr/bin/media-ctl', '-d', str(media), '-p'])
-        if 'imx800-cerro' in topology and 'ak7316-cerro' in topology:
+        if all(name in topology for name in ('imx800-cerro', 'ak7316-cerro', 'ov12d2q-cerro')):
             return True
     return False
 
@@ -85,9 +85,11 @@ def start():
         Path('/sys/bus/platform/drivers/i2c-qcom-cci/unbind').write_text('ac16000.cci')
     module('ak7316-cerro')
     module('imx800-cerro')
+    module('ov12d2q-cerro')
     module('cerro-camera-board', 'focus_min=' + str(infinity), 'focus_max=' + str(macro))
     require(GRAPH.exists(), 'Board graph was not installed')
-    print('camera-start: complete board graph installed before CAMSS', flush=True)
+    module('cerro-front-board')
+    print('camera-start: main/front graphs installed before CAMSS', flush=True)
     module('i2c-qcom-cci')
     if not (CCI1 / 'driver').exists():
         Path('/sys/bus/platform/drivers/i2c-qcom-cci/bind').write_text('ac16000.cci')

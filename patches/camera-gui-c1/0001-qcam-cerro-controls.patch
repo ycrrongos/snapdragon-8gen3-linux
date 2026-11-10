@@ -64,7 +64,7 @@
  	setWindowTitle(title_);
  	connect(&titleTimer_, SIGNAL(timeout()), this, SLOT(updateTitle()));
  
-@@ -143,6 +150,42 @@
+@@ -143,6 +150,47 @@
  		return;
  	}
  
@@ -90,6 +90,11 @@
 +   }
 +  });
 + bottom->addWidget(cerro_.get());
++ cerro_->setFocusEnabled(camera_->id().find("/i2c-bus@1/camera@10") != std::string::npos);
++ if (qEnvironmentVariableIsSet("CERRO_CAMERA_FIXED_TEST")) {
++  QTimer::singleShot(5000,this,[this]{saveImageAs();});
++  QTimer::singleShot(5500,this,&MainWindow::quit);
++ }
 + const auto &controls = camera_->controls();
 + if (controls.count(&libcamera::controls::ExposureTime) && controls.count(&libcamera::controls::AnalogueGain))
 +  cerro_->configureExposure(controls.at(&libcamera::controls::ExposureTime).min().get<int32_t>(),
@@ -107,7 +112,7 @@
  	startStopAction_->setChecked(true);
  }
  
-@@ -170,59 +213,27 @@
+@@ -170,59 +218,27 @@
  
  int MainWindow::createToolbars()
  {
@@ -170,7 +175,7 @@
 + QAction *exit = toolbar_->addAction(QIcon::fromTheme("application-exit"), QStringLiteral("退出"));
 + connect(exit, &QAction::triggered, this, &MainWindow::quit);
 + cameraSelectButton_ = new QPushButton(QStringLiteral("后置主摄"), this);
-+ cameraSelectButton_->setMinimumHeight(44); cameraSelectButton_->hide();
++ cameraSelectButton_->setMinimumHeight(44); cameraSelectButton_->setVisible(cm_->cameras().size() > 1);
 + connect(cameraSelectButton_, &QPushButton::clicked, this, &MainWindow::switchCamera);
 + if (cm_->cameras().size() > 1) toolbar_->addWidget(cameraSelectButton_);
 + auto *photo = new QPushButton(QIcon::fromTheme("camera-photo"), QStringLiteral("拍照"), this);
@@ -188,7 +193,7 @@
  }
  
  void MainWindow::quit()
-@@ -242,7 +253,8 @@
+@@ -242,7 +258,8 @@
  	frameRateInterval_.start();
  	previousFrames_ = framesCaptured_;
  
@@ -198,25 +203,33 @@
  }
  
  /* -----------------------------------------------------------------------------
-@@ -281,7 +293,7 @@
+@@ -281,7 +298,7 @@
  	startStopAction_->setChecked(true);
  
  	/* Display the current cameraId in the toolbar .*/
 -	cameraSelectButton_->setText(QString::fromStdString(cam->id()));
-+	cameraSelectButton_->setText(QStringLiteral("后置主摄"));
++	cameraSelectButton_->setText(camera_->id().find("front@10") != std::string::npos ? QStringLiteral("前置相机") : QStringLiteral("后置主摄"));
  }
  
  std::shared_ptr<Camera> MainWindow::chooseCamera()
-@@ -323,7 +335,7 @@
+@@ -323,7 +340,7 @@
  	}
  
  	/* Set the camera switch button with the currently selected Camera id. */
 -	cameraSelectButton_->setText(QString::fromStdString(camera_->id()));
-+	cameraSelectButton_->setText(QStringLiteral("后置主摄"));
++	cameraSelectButton_->setText(camera_->id().find("front@10") != std::string::npos ? QStringLiteral("前置相机") : QStringLiteral("后置主摄"));
  
  	return 0;
  }
-@@ -547,6 +559,7 @@
+@@ -355,6 +372,7 @@
+  */
+ int MainWindow::startCapture()
+ {
++ if (cerro_) cerro_->setFocusEnabled(camera_->id().find("/i2c-bus@1/camera@10") != std::string::npos);
+ 	std::vector<StreamRole> roles = StreamKeyValueParser::roles(options_[OptStream]);
+ 	int ret;
+ 
+@@ -547,6 +565,7 @@
  	if (!isCapturing_)
  		return;
  
@@ -224,7 +237,7 @@
  	viewfinder_->stop();
  	if (saveRaw_)
  		saveRaw_->setEnabled(false);
-@@ -627,18 +640,20 @@
+@@ -627,18 +646,20 @@
  
  void MainWindow::saveImageAs()
  {
@@ -257,7 +270,7 @@
  }
  
  void MainWindow::captureRaw()
-@@ -706,6 +721,22 @@
+@@ -706,6 +727,22 @@
  		request = doneQueue_.dequeue();
  	}
  
@@ -280,7 +293,7 @@
  	/* Process buffers. */
  	if (request->buffers().count(vfStream_))
  		processViewfinder(request->buffers().at(vfStream_));
-@@ -740,6 +771,7 @@
+@@ -740,6 +777,7 @@
  
  	/* Render the frame on the viewfinder. */
  	viewfinder_->render(buffer, mappedBuffers_[buffer].get());
@@ -288,7 +301,7 @@
  }
  
  void MainWindow::renderComplete(FrameBuffer *buffer)
-@@ -776,5 +808,26 @@
+@@ -776,5 +814,26 @@
  
  int MainWindow::queueRequest(Request *request)
  {

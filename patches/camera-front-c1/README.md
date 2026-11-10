@@ -2,7 +2,8 @@
 
 Native V4L2/CCI sensor and a once-per-boot board graph. Runtime power/clock and
 read-only ID probe passed:300b=1441 on CCI0/master0, driver bound, sensor suspended
-and shared1.8V rail use count0 afterward. This is not yet front image acceptance.
+and shared1.8V rail use count0 afterward. Normal cold graph plus actual30fpsRAW/RGB and3832x2160 GUI JPEG now pass.
+Low-light automatic exposure and image quality remain unfinished.
 Mode0/full3840x2160 and mode1/binned1920x1080 byte-write tables are audited against
 the exact factory module hash; no firmware/vendor implementation/calibration is
 included. The stream and reset registers are owned by the driver.

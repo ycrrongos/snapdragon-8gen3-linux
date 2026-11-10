@@ -22,6 +22,7 @@ public:
  QImage photoImage();
  bool active() const { return focusing_; }
  void setZoom(int percent);
+ void setFocusEnabled(bool enabled);
  void configureExposure(int minimum, int maximum, float gainMinimum, float gainMaximum);
  bool manualExposure() const;
  int exposureUs() const;
@@ -37,7 +38,7 @@ private:
  int lens_ = -1;
  int minimum_ = 0, maximum_ = 0, original_ = 0, best_ = 0;
  int settle_ = 0, frames_ = 0, phase_ = 0, index_ = 0;
- bool focusing_ = false, initial_ = false;
+ bool focusing_ = false, initial_ = false, focusEnabled_ = true;
  int exposureMinimum_ = 10, exposureMaximum_ = 33212;
  float gainMinimum_ = 1, gainMaximum_ = 16;
  QCheckBox *manualExposure_;
