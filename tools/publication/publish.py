@@ -31,7 +31,7 @@ def run(*args, cwd=None, env=None, capture=False):
     return subprocess.run(args, cwd=cwd, env=env, check=True,
                           stdout=subprocess.PIPE if capture else None, text=True)
 
-def export(destination):
+def export(destination, committed=False):
     selected = {Path(n) for n in ROOT_FILES if (ROOT / n).is_file()}
     for directory in ('tools','patches','linux','kernel','docs','notes/alsa-ucm-sm8650-cerro','recovery/orangefox'):
         for p in (ROOT / directory).rglob('*'):
@@ -43,10 +43,15 @@ def export(destination):
                 continue
             if p.suffix in EXTENSIONS or p.name in {'Makefile','Kconfig','meson.build','HiFi','VoiceCall','init','cerro-sd-prep'}:
                 selected.add(rel)
+    if committed:
+        tracked = set(subprocess.check_output(['git','ls-tree','-r','--name-only','-z','HEAD'],cwd=ROOT).decode().split('\0'))
+        selected = {rel for rel in selected if str(rel) in tracked}
+    def source_bytes(rel):
+        return subprocess.check_output(['git','show','HEAD:'+str(rel)],cwd=ROOT) if committed else (ROOT/rel).read_bytes()
     contents = {}
     for rel in sorted(selected):
         p = ROOT / rel
-        data = p.read_bytes()
+        data = source_bytes(rel)
         if len(data) > 700000 or b'\x00' in data or SECRET.search(data):
             raise SystemExit(f'Publication rejects binary/oversized/secret input: {rel}')
         text = data.decode('utf-8')
@@ -60,7 +65,7 @@ def export(destination):
             if any(value in text for value in PRIVATE_STRINGS):
                 raise SystemExit(f'Publication rejects device-specific source: {rel}')
         contents[str(rel)] = text.encode()
-    contents['AGENTS.md'] = (ROOT / 'docs/PUBLIC_AGENTS.md').read_bytes()
+    contents['AGENTS.md'] = source_bytes(Path('docs/PUBLIC_AGENTS.md'))
     manifest = {name: hashlib.sha256(data).hexdigest() for name,data in sorted(contents.items())}
     contents['PUBLICATION.json'] = (json.dumps({'format':1,'files':manifest}, indent=2)+'\n').encode()
     destination.mkdir(parents=True, exist_ok=True)
@@ -90,7 +95,7 @@ def publish(destination, message, push, export_only=False):
     actual = run('git','remote','get-url','origin',cwd=destination,capture=True).stdout.strip()
     if actual != 'https://github.com/'+REPO+'.git':
         raise SystemExit('Wrong publication remote')
-    export(destination)
+    export(destination, committed=push)
     if export_only: return
     run('python3',str(ROOT/'tools/publication/audit.py'),str(destination))
     run('make','test',cwd=destination)

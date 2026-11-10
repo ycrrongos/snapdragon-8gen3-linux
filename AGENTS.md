@@ -3,6 +3,7 @@
 This repository ports mainline Linux to SM8650 phones; only Cerro is tested.
 Read docs/STATUS.md, docs/BUILDING.md and kernel/source.lock.json first.
 
+- Device-local switch apps were built at the owner's request with **no phone or simulated partition tests**. Do not install/run/test them without a later instruction. See docs/DEVICE-SWITCH.md.
 - Current queue: Waydroid kernel support, then front/ultrawide/tele cameras and
   remaining main-camera quality/UI work, then accelerometer. The owner accepted
   the main camera as basically usable; do not claim Android parity.

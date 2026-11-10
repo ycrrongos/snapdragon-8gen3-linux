@@ -22,3 +22,7 @@ The owner has explicitly requested a push after each completed update. A failed
 push must be reported and retried when connectivity returns. Retain upstream
 copyright and actual external contributor attribution. AI assistance is disclosed
 in README/repository description, without adding fictional AI authors to commits.
+
+Actual --push exports committed HEAD source bytes only. Untracked or uncommitted
+camera experiments are not silently included with another completed update.
+--export-only can still audit a working candidate before committing.

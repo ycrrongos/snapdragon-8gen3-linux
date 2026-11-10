@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=系统切换
+Name[en]=System Switch
+Comment=保持当前活动槽恢复 Android 并重启
+Comment[en]=Restore Android boot and dtbo on the current active slot
+Exec=/usr/local/bin/cerro-system-switch
+Icon=system-reboot
+Terminal=false
+Categories=System;Settings;
+Keywords=android;linux;dualboot;cerro;
+StartupNotify=true

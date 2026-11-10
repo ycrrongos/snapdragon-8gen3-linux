@@ -33,6 +33,9 @@ Outputs: `build/artifacts/Image`, Cerro DTB, config, modules and checksums.
 The empty initramfs in this **source build** is intentional: these outputs are
 not a ready-to-flash OS or a complete Debian root filesystem.
 
+Build-only [Android/Linux device switch apps](docs/DEVICE-SWITCH.md) are available
+from source; the owner requested no phone testing yet.
+
 See [build and deployment boundaries](docs/BUILDING.md) for external camera
 modules, boot-image assembly and the existing-phone Android/Linux swap tools.
 Building never flashes a device. A complete phone deployment still needs its
