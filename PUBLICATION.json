@@ -396,6 +396,7 @@
     "tools/cerro-touch-dot.py": "38120045a7949a742b062771f7ab011d00de8228affb980720932894071af8f3",
     "tools/cerro-usb-diag-dump.sh": "e0e03cd2aa0cd595756aee0f4639501156ce9b17e814408083a60680c2093a45",
     "tools/cerro-usbnet-share.sh": "cf3be08e8f4fb59189e1da5b301cc932f2001f247e7cdc08a1d33f79d8332ae5",
+    "tools/cerro_debug_credentials.py": "f1cbb7939e1fb190d2bc06111f35d935e6718201d67ee211e61d7660d1756a0b",
     "tools/edl-tools/README.md": "4153bb3d7bc9af40340f29a0bfe891b63a480ec8dc594300114cafce99c7b5c0",
     "tools/edl-tools/aosp-parf-gold-dump.sh": "192bb0094dde736c7f24d5df267592a12d53a7ee69f14ed64683f2868ba63e16",
     "tools/edl-tools/aosp-wsa-gold-dump.sh": "f9e1d3812cee48fb252456b16e3c77c58f1203f26ca398f01acbd635dedb9a25",
