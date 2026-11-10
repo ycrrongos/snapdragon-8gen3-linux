@@ -20,3 +20,7 @@ hypotheses. Three failures of the same method mean research and a new method.
 For a new phone, establish product/board/boot topology and an existing unlocked
 boot path, lawful firmware sources and backups before writes. Never copy a
 Cerro flash recipe across devices by changing only the DT model string.
+
+Debug console credentials are supplied privately through `CERRO_CREDENTIALS_FILE`
+(owner-only JSON with `username` and `password`), `CERRO_USER`/`CERRO_PASSWORD`,
+or a password prompt. The local provisioned account is `rong`; never commit passwords.

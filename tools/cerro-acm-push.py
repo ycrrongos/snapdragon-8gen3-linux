@@ -14,6 +14,7 @@ import sys
 import time
 
 import serial
+from cerro_debug_credentials import defaults, password_or_prompt
 
 
 def load_acm_helper():
@@ -31,14 +32,16 @@ def main() -> int:
     parser.add_argument("local", type=Path)
     parser.add_argument("remote")
     parser.add_argument("--port")
-    parser.add_argument("--user", default="user")
-    parser.add_argument("--password", default="user")
+    username, password = defaults()
+    parser.add_argument("--user", default=username)
+    parser.add_argument("--password", default=password)
     parser.add_argument("--mode", default="0755")
     parser.add_argument("--sudo", action="store_true", help="install the final file as root")
     # ttyGS0/getty on this image truncates long canonical input lines well below
     # the usual 4 KiB limit. Keep the encoded payload comfortably under it.
     parser.add_argument("--chunk-size", type=int, default=512)
     args = parser.parse_args()
+    args.password = password_or_prompt(args.password)
 
     content = base64.b64encode(args.local.read_bytes()).decode("ascii")
     helper = load_acm_helper()

@@ -16,6 +16,7 @@ import sys
 import time
 
 import serial
+from cerro_debug_credentials import defaults, password_or_prompt
 
 
 ANSI_RE = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
@@ -127,9 +128,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", help="shell command to execute on the phone")
     parser.add_argument("--port", help="serial device; defaults to the phone USB by-id path")
-    # Live Debian console is user/user (AGENTS.md). Use explicit options for other provisioned accounts.
-    parser.add_argument("--user", default="user")
-    parser.add_argument("--password", default="user")
+    username, password = defaults()
+    parser.add_argument("--user", default=username)
+    parser.add_argument("--password", default=password)
     parser.add_argument("--login-timeout", type=float, default=20.0)
     parser.add_argument("--command-timeout", type=float, default=60.0)
     parser.add_argument("--debug-login", action="store_true", help="print the console transcript if login fails")
@@ -140,6 +141,7 @@ def main() -> int:
         help="run the command through sudo and answer its prompt without printing the password",
     )
     args = parser.parse_args()
+    args.password = password_or_prompt(args.password)
 
     port = choose_port(args.port)
     print(f"[cerro-acm] port={port} -> {os.path.realpath(port)}", file=sys.stderr)

@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import threading
+from cerro_debug_credentials import defaults, password_or_prompt
 import time
 from pathlib import Path
 
@@ -82,12 +83,12 @@ PROBE = (
     "u=$(cut -d. -f1 /proc/uptime); "
     "s=$(systemctl is-active sddm 2>/dev/null || echo na); "
     "echo BOOT=$b UPT=$u SDDM=$s; "
-    "echo user | sudo -S -p '' journalctl -b -o cat --no-pager "
+    "sudo -n journalctl -b -o cat --no-pager "
     "-p err --cursor-file=/tmp/cerro-jcur -n 20 2>/dev/null | tail -20"
 )
 
 PREV = (
-    "echo user | sudo -S -p '' sh -c '"
+    "sudo -n sh -c '"
     "journalctl -b -1 -p err -o short-monotonic --no-pager | tail -40; "
     "echo ----; "
     "journalctl -b -1 --no-pager | grep -E \"dumped core|segfault|Kernel panic|Oops|watchdog\" | tail -20"
@@ -97,6 +98,8 @@ PREV = (
 
 def main() -> int:
     helper = load_helper()
+    username, password = defaults()
+    password = password_or_prompt(password)
     write_log("watch start")
     state = {"mode": "", "boot": "", "upt": ""}
     lock = threading.Lock()
@@ -139,7 +142,16 @@ def main() -> int:
             time.sleep(1)
             continue
         try:
-            helper.login(ser, "user", "user", 12.0, reset_prompt=True)
+            helper.login(ser, username, password, 12.0, reset_prompt=True)
+            ser.reset_input_buffer()
+            sudo_token = b"__CERRO_WATCH_AUTH__"
+            ser.write(b"sudo -S -p '__CERRO_WATCH_AUTH__' -v\r")
+            _, auth = helper.read_until(ser, (re.compile(rb"(?:^|\n)" + sudo_token + rb"\s*$"), helper.PROMPT_RE), 8.0)
+            if auth == 0:
+                ser.write(password.encode() + b"\r")
+                _, auth = helper.read_until(ser, (helper.PROMPT_RE,), 8.0)
+            if auth is None:
+                raise RuntimeError("sudo authentication timed out")
             write_log(f"ACM login {port}")
             seen_boot = ""
             while True:
