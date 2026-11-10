@@ -1,0 +1,55 @@
+/dts-v1/;
+/plugin/;
+/* External provider placeholders are replaced by typed live OF phandles. */
+/ {
+ fragment@0 {
+  target-path = "/soc@0/pinctrl@f100000";
+  __overlay__ {
+   front_mclk: cerro-front-mclk4-state {
+    pins = "gpio104";
+    function = "cam_aon_mclk4";
+    drive-strength = <2>;
+    bias-disable;
+   };
+  };
+ };
+ fragment@1 {
+  target-path = "/soc@0/cci@ac15000/i2c-bus@0";
+  __overlay__ {
+   #address-cells = <1>; #size-cells = <0>;
+   front@10 {
+    compatible = "ovti,ov12d2q";
+    reg = <0x10>;
+    io-supply = <0xca100003>;
+    clocks = <0xca100001 104>;
+    power-domains = <0xca100001 0>;
+    reset-gpios = <0xca100002 7 1>;
+    enable-gpios = <0xca100002 58 0>;
+    pinctrl-names = "default";
+    pinctrl-0 = <&front_mclk>;
+    port {
+     front_out: endpoint {
+      bus-type = <4>; clock-lanes = <7>; data-lanes = <0 1 2 3>;
+      link-frequencies = /bits/ 64 <1250000000>;
+      remote-endpoint = <&front_in>;
+     };
+    };
+   };
+  };
+ };
+ fragment@2 {
+  target-path = "/soc@0/isp@acb6000";
+  __overlay__ {
+   ports {
+    #address-cells = <1>; #size-cells = <0>;
+    port@4 {
+     reg = <4>;
+     front_in: endpoint {
+      bus-type = <4>; clock-lanes = <7>; data-lanes = <0 1 2 3>;
+      remote-endpoint = <&front_out>;
+     };
+    };
+   };
+  };
+ };
+};
