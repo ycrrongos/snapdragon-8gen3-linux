@@ -16,7 +16,7 @@ import sys
 import time
 
 import serial
-from cerro_debug_credentials import defaults, password_or_prompt
+from cerro_debug_login import defaults, password_or_prompt
 
 
 ANSI_RE = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")

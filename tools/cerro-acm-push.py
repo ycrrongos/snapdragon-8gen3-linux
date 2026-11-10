@@ -14,7 +14,7 @@ import sys
 import time
 
 import serial
-from cerro_debug_credentials import defaults, password_or_prompt
+from cerro_debug_login import defaults, password_or_prompt
 
 
 def load_acm_helper():

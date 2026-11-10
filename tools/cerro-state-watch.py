@@ -18,7 +18,7 @@ import re
 import subprocess
 import sys
 import threading
-from cerro_debug_credentials import defaults, password_or_prompt
+from cerro_debug_login import defaults, password_or_prompt
 import time
 from pathlib import Path
 
