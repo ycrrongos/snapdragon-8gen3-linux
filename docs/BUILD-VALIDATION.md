@@ -39,3 +39,19 @@ External module SHA-256 (compiler/path changes may change bytes):
 e1308d27cf8ac2efb08b32368e423d84019fbf5eedecb3e07411bf7596c17e80  cerro-camera-lens.ko
 8cd853cb5feeee3f795858a80d9b0887c4bd4b14568812137a4bcf0461ac2368  qcom-memshare.ko
 ```
+
+## Waydroid configuration follow-up
+
+Normal in-tree Image/modules build also passed after adding the verified7.2
+legacy xtables/NAT/container module options. The public source-only tree was
+built again with the current source lock/config (no private initramfs):
+
+```text
+74ed248a89c03a72969e23c28609a2356db91fea78cf7fc000cbdd0957761307  Image
+60b33eb5f12372cd00dc07d1d3259e41fa188109c6ecae5a624886a9fe8e2bfd  sm8650-nubia-cerro.dtb
+370f97ad5ad505885ef7871db17a3ac403e264ca987d3e13b682e44070347590  kernel.config
+```
+
+Phone-specific runtime validation is tracked in docs/WAYDROID.md, separately
+from these compile results. The first artifact hashes above describe the
+initial source release, before this configuration update.

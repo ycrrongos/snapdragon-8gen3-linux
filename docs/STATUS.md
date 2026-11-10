@@ -23,7 +23,8 @@ Linux UI, front/ultrawide/tele cameras, optical switching, sensor-specific
 CCM/LSC, OIS, denoising and Android-like low-light/automatic-exposure behavior.
 Low-contrast focus can select an endpoint; far-scene sharpness was not accepted.
 
-User's updated queue: publish source → Waydroid kernel support → front camera
+Source publication and Waydroid kernel interface acceptance are complete.
+Current queue: front camera
 and two additional rear cameras plus remaining camera quality work → accelerometer.
 Dual SIM SMS/data and display are preserved regression baselines. No calls are
 part of this task. Do not restart completed subsystems merely to improve logs.

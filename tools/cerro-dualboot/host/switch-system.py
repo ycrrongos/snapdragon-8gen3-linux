@@ -19,8 +19,8 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_IMAGE = ROOT / "build/dualboot/linux-usb-dp6-link-bandwidth-daily.img"
-DEFAULT_SHA = "463a7ce87b3091cb7ab7035037ceccad1f0d62f9e2b0acc65a1ed6c29c432d60"
+DEFAULT_IMAGE = ROOT / "build/dualboot/linux-waydroid-c1-daily.img"
+DEFAULT_SHA = "18886d05c015d60d5daf15ac76485a48ac2c16f684d837253c77ebc8b0ce535a"
 KINDS = ("boot", "dtbo")
 
 

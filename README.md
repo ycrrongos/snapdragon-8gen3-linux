@@ -53,7 +53,7 @@ As of 2026-11-10 on the tested Cerro:
   actual AK7316 focus, exposure controls, digital crop zoom and GUI JPEG.
   Normal boot prepares the graph in dependency order. The owner reports it
   is basically usable; this is not Android image-quality parity.
-- Waydroid kernel support is next. Front/ultrawide/telephoto cameras,
+- Waydroid kernel interface and container-network tests passed; see [WAYDROID](docs/WAYDROID.md). Front/ultrawide/telephoto cameras,
   standard libcamera AF, improved existing-app UI, low light/AE, CCM/LSC/OIS,
   denoising and accelerometer integration remain open.
 

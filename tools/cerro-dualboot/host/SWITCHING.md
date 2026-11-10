@@ -20,7 +20,7 @@ Android 需要可用的 `adb root`；Linux 通过项目的 Cerro ACM 控制台�
 3. 切 Android：核对手机 rootfs UUID、槽位、保存的状态及非活动槽两个安卓镜像
    的完整 SHA256，再复制回同一活动槽并逐个校验，最后重启。
 
-默认 Linux 镜像是已验证 DP6 daily（96MiB，SHA463a7ce8…），不重新构建内核。
+默认 Linux 镜像是已验证 Waydroid C1 daily（96MiB，SHA18886d05…，保留DP6显示），不重新构建内核。
 换镜像必须显式提供 `--linux-boot PATH --linux-sha256 FULL_SHA256`。
 除 boot/dtbo 外不写任何分区，不动 GPT 活动槽、vendor_boot、init_boot、vbmeta、
 recovery、super、userdata、ABL/XBL。Linux rootfs 位于独立 cerro_linux 分区。
