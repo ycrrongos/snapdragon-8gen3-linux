@@ -41,7 +41,7 @@ def export(destination):
             if str(rel) in EXCLUDE_FILES: continue
             if p.name.startswith('.') or p.name.endswith(('.mod.c','.orig','.stock-bak')):
                 continue
-            if p.suffix in EXTENSIONS or p.name in {'Makefile','Kconfig','meson.build','HiFi','VoiceCall'}:
+            if p.suffix in EXTENSIONS or p.name in {'Makefile','Kconfig','meson.build','HiFi','VoiceCall','init','cerro-sd-prep'}:
                 selected.add(rel)
     contents = {}
     for rel in sorted(selected):

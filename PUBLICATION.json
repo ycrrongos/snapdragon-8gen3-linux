@@ -9,7 +9,7 @@
     "NOTICE": "a78bcd276271d07a6ad1318f91b68f49eef668d0944ad8890f40b9ec70b81e12",
     "README.md": "4ce5f36f352197fc667f3f00a3f5eda3028e6e3ce4587bc3fc528ce11d6d7c0a",
     "docs/BUILD-VALIDATION.md": "47e06ace40eec4bff877a4cd1b1daec232837557e67ec640f2e396e2e3ec4e0a",
-    "docs/BUILDING.md": "48a8344a8e0740d85dac95e2cd4a524d51ee049b3b2b9002c683ebb100dafc71",
+    "docs/BUILDING.md": "4ef063afff3c78c7057e24cffe10417b3dcb6aeffd656869c930626fc0ce03c6",
     "docs/GOTCHAS.md": "5742dc5aeb7c641cbd663759e7bde0776673f86b3f38235952fa2fd4450b5fe8",
     "docs/PORTING.md": "20123fda16eb820f4fdadd6c68e037806dc12a3dccef4bd0ab4449c9b0ad0b49",
     "docs/PUBLIC_AGENTS.md": "44635f55d3375a187b0d1340f728e82320b24466ba9d0944eac9826e9761ddd7",
@@ -337,6 +337,7 @@
     "tools/cerro-fix-lib-symlink.sh": "b16fd08c09baaf527fafbce7d6516080228bcbb4f1ca3d7eeec34df4004fc9b7",
     "tools/cerro-init/README.md": "ec78510d250938cf7c5e748343527d107f77f0035d2f512dd48923e338a555ff",
     "tools/cerro-init/early-drm.sh": "783c6e6dd045d903175a6a6538b2af4882ef561e4298ad2c81f43e8bc61e7d28",
+    "tools/cerro-init/init": "65898d85deb9840069bec519120dc8ce0194ec925bdb18056e588f7bad2bb127",
     "tools/cerro-init/rootfs-overlay/etc/X11/xorg.conf.d/90-cerro-touch-libinput.conf": "8044f36106a19c974794608ed0a01354b93d46be304d4819ebfb4cbe69a1261c",
     "tools/cerro-init/rootfs-overlay/etc/xdg/autostart/cerro-kwin-session-stub.desktop": "1a7806869447965118d74d6d42b111738b2c4fa51e653d9affc4d6aafec1f987",
     "tools/cerro-init/rootfs-overlay/usr/lib/systemd/system/qbootctl.service": "11aca6e99bc7d848e0f49149314dc202222fe5951f5396146cbeb88e93be8cdd",
@@ -408,7 +409,7 @@
     "tools/patch-ipa-imem-boot.py": "ddc7556be892f7e29e07a8ad74695272e80c3740179a9499aa18905aa6d3c29f",
     "tools/prepare-kernel.py": "b866947459f55809bfbef82b8bc74a7f4cacf377dfa1e33ec4d183d9a0a2a2f4",
     "tools/publication/audit.py": "55c9a10bf1d1c068ae82570593814fd7f0c8534da23d1dcc9528fb11e73c7719",
-    "tools/publication/publish.py": "b54cf82b946f8d5c907e7b5e29a840d710f17f531944bacca2ea839f15fcdf03",
+    "tools/publication/publish.py": "55fa5143970e14950231cd60f8c9098bb35b3ed3818291deb5289b96dcd0aab8",
     "tools/recover-cerro-panel-history.py": "ca3619021590e1fed27be08faf637b1ef5744e9fff2cde7b15a5487e2782d08b",
     "tools/verify-android-sparse.py": "53bbe7fa2fbb1e3402f73b98a269a46e72cfa59d79fed46cfff9a01f5b36ff00"
   }

@@ -1,0 +1,1140 @@
+#!/bin/busybox ash
+# cerro s5ci: TER16x32 + ACM+ECM reclaim (beat pmOS NCM) + qbootctl + BANK_MEM
+export PATH=/usr/bin:/bin:/sbin:/usr/sbin
+# ttyGS0 writes block forever with no USB host.
+# DTB bootargs often keep ignore_loglevel even on "daily" (ABL ignores boot.img cmdline),
+# so do NOT key off ignore_loglevel. Opt-in only: cerro_acm_log on cmdline.
+# ACM+ECM gadget (setup_acm) always runs — this gate is writes only.
+CONSOLE_ON=0
+grep -qw cerro_acm_log /proc/cmdline 2>/dev/null && CONSOLE_ON=1
+/bin/busybox --install -s 2>/dev/null || true
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+mkdir -p /dev/pts /sys/kernel/config /tmp /sysroot
+mount -t devpts devpts /dev/pts 2>/dev/null || true
+mount -t configfs configfs /sys/kernel/config 2>/dev/null || true
+
+log() {
+  echo "[cerro-s5ca] $*"
+  echo "[cerro-s5ca] $*" >> /tmp/cerro-usb.log 2>/dev/null
+  echo "[cerro-s5ca] $*" >/dev/tty1 2>/dev/null || true
+  echo "[cerro-s5ca] $*" >/dev/kmsg 2>/dev/null || true
+  [ "$CONSOLE_ON" = 1 ] && [ -c /dev/ttyGS0 ] && echo "[cerro-s5ca] $*" >/dev/ttyGS0 2>/dev/null || true
+}
+
+[ -c /dev/tty0 ] || mknod /dev/tty0 c 4 0 2>/dev/null || true
+[ -c /dev/tty1 ] || mknod /dev/tty1 c 4 1 2>/dev/null || true
+
+# ACM serial + ECM ethernet once in initramfs. Do NOT rebind after switch_root
+# (s5bz planted systemd tore down UDC → host only saw ACM + reconnect flap).
+setup_acm() {
+  local G=/sys/kernel/config/usb_gadget/cerro
+  [ -d /sys/kernel/config/usb_gadget ] || { log "no configfs gadget"; return 1; }
+  mkdir -p "$G" || true
+  cd "$G" || return 1
+  echo 0x1d6b > idVendor
+  echo 0x0104 > idProduct
+  echo 0x0100 > bcdDevice
+  mkdir -p strings/0x409
+  echo "cerro-debug" > strings/0x409/serialnumber
+  echo "nubia" > strings/0x409/manufacturer
+  echo "Z60U USB console+net" > strings/0x409/product
+  mkdir -p configs/c.1/strings/0x409
+  echo "acm+ecm" > configs/c.1/strings/0x409/configuration
+  echo 250 > configs/c.1/MaxPower
+  mkdir -p functions/acm.usb0 functions/ecm.usb0
+  echo 02:11:22:33:44:55 > functions/ecm.usb0/dev_addr
+  echo 02:11:22:33:44:56 > functions/ecm.usb0/host_addr
+  ln -sf functions/acm.usb0 configs/c.1/ 2>/dev/null || true
+  ln -sf functions/ecm.usb0 configs/c.1/ 2>/dev/null || true
+  local udc="" i
+  for i in $(seq 1 40); do
+    udc=$(ls /sys/class/udc 2>/dev/null | head -1)
+    [ -n "$udc" ] && break
+    sleep 1
+  done
+  if [ -z "$udc" ]; then
+    log "NO UDC"
+    return 1
+  fi
+  echo "$udc" > UDC
+  log "ACM+ECM UDC=$udc"
+  return 0
+}
+
+sleep 2
+setup_acm || log "setup_acm failed"
+for i in $(seq 1 15); do
+  [ -c /dev/ttyGS0 ] && break
+  sleep 1
+done
+[ -c /dev/ttyGS0 ] && stty -F /dev/ttyGS0 115200 raw -echo 2>/dev/null || true
+# Bank-bisect: print RAM while ACM up (host often connects only after unlock).
+MEMLINE=$(grep MemTotal /proc/meminfo 2>/dev/null || echo MemTotal:unknown)
+log "BANK_MEM $MEMLINE"
+# s5ck: also spam ABL harvest lines from dmesg while ACM is up
+HLINES=$(dmesg 2>/dev/null | grep -E 'cerro: (ABL|install|harvest|fallback|ABl)' | tail -20)
+i=0
+while [ "$i" -lt 12 ]; do
+  [ "$CONSOLE_ON" = 1 ] && echo "BANK_MEM $MEMLINE" >/dev/ttyGS0 2>/dev/null || true
+  [ -n "$HLINES" ] && echo "$HLINES" >/dev/ttyGS0 2>/dev/null || true
+  echo "BANK_MEM $MEMLINE" >/dev/kmsg 2>/dev/null || true
+  i=$((i + 1))
+  sleep 1
+done
+
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  [ -c /dev/fb0 ] && break
+  sleep 1
+done
+printf '\033[2J\033[H' >/dev/tty1 2>/dev/null || true
+{
+  echo "=== cerro s5ca acm+ecm ==="
+  echo "host: screen ...nubia... 115200"
+  echo "login: user / user"
+  echo "usbnet: 192.168.68.2 via .1"
+  echo
+} >/dev/tty1 2>/dev/null || true
+log "fb0 ready banner"
+sleep 4
+
+for i in $(seq 1 60); do
+  for d in /sys/class/block/sd*; do [ -e "$d" ] && break 2; done
+  sleep 1
+done
+[ -x /sbin/mdev ] && { echo /sbin/mdev >/proc/sys/kernel/hotplug; /sbin/mdev -s; }
+sleep 2
+
+ROOT_UUID=ab3a863b-512a-447e-a35c-e681ce0ae61b
+BOOT_UUID=0ad60230-638c-49c0-9c95-ab8938f81eaf
+# Dual-boot: prefer PARTLABEL/label cerro_linux, then legacy pmOS UUID/label.
+part=$(blkid --label cerro_linux 2>/dev/null || true)
+if [ -z "$part" ] && [ -b /dev/disk/by-partlabel/cerro_linux ]; then
+  part=/dev/disk/by-partlabel/cerro_linux
+fi
+if [ -z "$part" ] && [ -b /dev/block/by-name/cerro_linux ]; then
+  part=/dev/block/by-name/cerro_linux
+fi
+if [ -z "$part" ]; then
+  part=$(blkid --uuid "$ROOT_UUID" 2>/dev/null || blkid --label pmOS_root 2>/dev/null || true)
+fi
+if [ -z "$part" ]; then
+  log "FAIL: no cerro_linux/pmOS_root"
+  echo "FAIL: no cerro_linux/pmOS_root" >/dev/tty1
+  sleep 120
+  reboot -f 2>/dev/null || echo b >/proc/sysrq-trigger
+fi
+log "root part=$part"
+if ! mount -t ext4 -o rw "$part" /sysroot; then
+  log "FAIL: mount root"
+  echo "FAIL: mount root" >/dev/tty1
+  sleep 120
+  reboot -f 2>/dev/null || echo b >/proc/sysrq-trigger
+fi
+
+# Recovery guard: archive extraction must never leave the real root directory
+# non-traversable for the desktop user.  A driver-pack tar once carried its
+# mktemp top-level `.` mode (0700) and applied it to `/`; repair the mounted
+# filesystem root before any copy, sudo, systemd or switch_root operation.
+root_mode_before=$(stat -c %a /sysroot 2>/dev/null || echo '?')
+busybox chmod 0755 /sysroot 2>/dev/null || chmod 0755 /sysroot 2>/dev/null || true
+busybox chown 0:0 /sysroot 2>/dev/null || chown 0:0 /sysroot 2>/dev/null || true
+root_mode_after=$(stat -c %a /sysroot 2>/dev/null || echo '?')
+log "root mode $root_mode_before -> $root_mode_after"
+
+# s5ep: a bad host-uid tar once clobbered /etc ownership → sudo refuses to run.
+# Fix before planting units. Also stage kiwi BT modules/firmware if present in initramfs.
+if [ -d /sysroot/etc ]; then
+  before=$(stat -c %u:%g /sysroot/etc 2>/dev/null || echo '?')
+  # numeric ids — some busybox builds are picky about names in initramfs
+  busybox chown 0:0 /sysroot/etc 2>/dev/null || chown 0:0 /sysroot/etc 2>/dev/null || true
+  after=$(stat -c %u:%g /sysroot/etc 2>/dev/null || echo '?')
+  log "chown /etc $before -> $after"
+fi
+if [ -d /lib/modules/7.2.0-rc5-dirty ]; then
+  mkdir -p /sysroot/lib/modules
+  cp -a /lib/modules/7.2.0-rc5-dirty /sysroot/lib/modules/ 2>/dev/null || true
+  log "staged BT/WiFi modules tree"
+fi
+if [ -d /lib/firmware/qca ]; then
+  mkdir -p /sysroot/lib/firmware/qca
+  cp -a /lib/firmware/qca/. /sysroot/lib/firmware/qca/ 2>/dev/null || true
+  log "staged qca BT firmware"
+fi
+# s5eu: Adreno a750 zap/gmu/sqe (uncompressed; CONFIG_FW_LOADER_COMPRESS=n)
+if [ -f /lib/firmware/qcom/sm8650/gen70900_zap.mbn ]; then
+  mkdir -p /sysroot/lib/firmware/qcom/sm8650
+  cp -a /lib/firmware/qcom/sm8650/gen70900_zap.mbn /sysroot/lib/firmware/qcom/sm8650/ 2>/dev/null || true
+  for f in gmu_gen70900.bin gen70900_sqe.fw gen70900_aqe.fw; do
+    [ -f /lib/firmware/qcom/$f ] && cp -a /lib/firmware/qcom/$f /sysroot/lib/firmware/qcom/ 2>/dev/null || true
+  done
+  log "staged Adreno gen70900 GPU firmware"
+fi
+
+# s5ex: ADSP (Audioreach) — prefer initramfs copy; else modem_a after disks appear
+mkdir -p /sysroot/lib/firmware/qcom/sm8650 /lib/firmware/qcom/sm8650
+if [ -f /lib/firmware/qcom/sm8650/adsp.mdt ]; then
+  cp -a /lib/firmware/qcom/sm8650/. /sysroot/lib/firmware/qcom/sm8650/ 2>/dev/null || true
+  log "staged ADSP firmware from initramfs"
+else
+  i=0
+  while [ $i -lt 30 ]; do
+    [ -e /dev/disk/by-partlabel/modem_a ] && break
+    sleep 0.3
+    i=$((i + 1))
+  done
+  mkdir -p /mnt/modem
+  if mount -t vfat -o ro /dev/disk/by-partlabel/modem_a /mnt/modem 2>/dev/null; then
+    for f in /mnt/modem/image/adsp.mdt /mnt/modem/image/adsp.b* \
+             /mnt/modem/image/adsp_dtb.mdt /mnt/modem/image/adsp_dtb.b* \
+             /mnt/modem/image/adspr.jsn /mnt/modem/image/adsps.jsn /mnt/modem/image/adspua.jsn; do
+      [ -e "$f" ] || continue
+      cp -a "$f" /sysroot/lib/firmware/qcom/sm8650/ 2>/dev/null || true
+      cp -a "$f" /lib/firmware/qcom/sm8650/ 2>/dev/null || true
+    done
+    umount /mnt/modem 2>/dev/null || true
+    log "staged ADSP firmware from modem_a"
+  else
+    log "warn: could not mount modem_a for ADSP fw"
+  fi
+fi
+# s5fg: Audioreach topology for model SM8650-CERRO
+if [ -f /lib/firmware/qcom/sm8650/SM8650-CERRO-tplg.bin ]; then
+  cp -a /lib/firmware/qcom/sm8650/SM8650-CERRO-tplg.bin /sysroot/lib/firmware/qcom/sm8650/ 2>/dev/null || true
+  log "staged SM8650-CERRO-tplg.bin"
+fi
+# s5fr: Awinic AW88261 ACF (speakers)
+if [ -f /lib/firmware/aw882xx_acf.bin ]; then
+  mkdir -p /sysroot/lib/firmware
+  cp -a /lib/firmware/aw882xx_acf.bin /sysroot/lib/firmware/ 2>/dev/null || true
+  [ -f /lib/firmware/aw_cali.bin ] && cp -a /lib/firmware/aw_cali.bin /sysroot/lib/firmware/ 2>/dev/null || true
+  log "staged aw882xx_acf.bin"
+fi
+
+# s5ex: audio modules (if present in initramfs) → rootfs
+KVER=$(uname -r)
+if [ -d /lib/modules/$KVER/kernel/sound ]; then
+  mkdir -p /sysroot/lib/modules/$KVER
+  cp -a /lib/modules/$KVER/. /sysroot/lib/modules/$KVER/ 2>/dev/null || true
+  log "staged sound/remoteproc modules for $KVER"
+fi
+# s5fr: load AW88261 early (I2C smart PA); ignore failures if bus not ready yet
+if [ -f /lib/modules/$KVER/kernel/sound/soc/codecs/snd-soc-aw88261.ko ]; then
+  modprobe snd-soc-aw88395-lib 2>/dev/null || \
+    insmod /lib/modules/$KVER/kernel/sound/soc/codecs/snd-soc-aw88395-lib.ko 2>/dev/null || true
+  modprobe snd-soc-aw88261 2>/dev/null || \
+    insmod /lib/modules/$KVER/kernel/sound/soc/codecs/snd-soc-aw88261.ko 2>/dev/null || true
+  modprobe i2c-qcom-geni 2>/dev/null || true
+  log "modprobe aw88261 attempted"
+fi
+# s5es: ath12k WCN7850 board/amss (cerro board-id 255 / subdev 1107 entry)
+if [ -d /lib/firmware/ath12k ]; then
+  mkdir -p /sysroot/lib/firmware/ath12k
+  cp -a /lib/firmware/ath12k/. /sysroot/lib/firmware/ath12k/ 2>/dev/null || true
+  log "staged ath12k WiFi firmware"
+fi
+if [ -f /lib/firmware/regulatory.db ]; then
+  mkdir -p /sysroot/lib/firmware
+  cp -a /lib/firmware/regulatory.db /lib/firmware/regulatory.db.p7s \
+    /sysroot/lib/firmware/ 2>/dev/null || true
+fi
+
+if [ -d /sysroot/boot ] && ! mountpoint -q /sysroot/boot 2>/dev/null; then
+  bpart=$(blkid --uuid "$BOOT_UUID" 2>/dev/null || blkid --label pmOS_boot 2>/dev/null || true)
+  if [ -n "$bpart" ]; then
+    mount -t ext4 -o rw "$bpart" /sysroot/boot 2>/dev/null || \
+      mount -t ext2 -o rw "$bpart" /sysroot/boot 2>/dev/null || \
+      mount -o rw "$bpart" /sysroot/boot 2>/dev/null || true
+    log "boot mount bpart=$bpart"
+  fi
+fi
+
+if ! [ -e /sysroot/sbin/init ]; then
+  if [ -e /sysroot/debian-root/sbin/init ]; then
+    log "outer /sbin/init missing; using nested debian-root (dualboot)"
+  else
+    log "FAIL: no /sbin/init"
+    sleep 120
+    reboot -f 2>/dev/null || echo b >/proc/sysrq-trigger
+  fi
+fi
+
+rm -f /sysroot/etc/systemd/system/cerro-boot-ok.service
+rm -f /sysroot/etc/systemd/system/multi-user.target.wants/cerro-boot-ok.service
+
+# --- plant ACM gadget + serial-getty for host login (no OTG keyboard) ---
+mkdir -p /sysroot/usr/local/sbin \
+  /sysroot/etc/systemd/system \
+  /sysroot/etc/systemd/system/multi-user.target.wants \
+  /sysroot/etc/systemd/system/getty.target.wants
+
+cat >/sysroot/usr/local/sbin/cerro-usb-acm.sh <<'SCRIPTEOF'
+#!/bin/sh
+# Reclaim UDC from pmOS NCM ("NCM USB gadget (developer)") → ACM+ECM.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mountpoint -q /sys/kernel/config 2>/dev/null || mount -t configfs configfs /sys/kernel/config
+CFG=/sys/kernel/config/usb_gadget
+G=$CFG/cerro
+
+# Already ours? keep (avoid USB re-enumerate flap).
+prod=$(cat "$G/strings/0x409/product" 2>/dev/null || true)
+udc_now=$(cat "$G/UDC" 2>/dev/null || true)
+if [ -n "$udc_now" ] && [ "$prod" = "Z60U USB console+net" ] && [ -d "$G/functions/ecm.usb0" ]; then
+  echo "cerro-usb-acm: keep UDC=$udc_now"
+  exit 0
+fi
+
+# Drop legacy composite modules that steal UDC from configfs.
+for m in g_ncm g_ether g_serial g_ffs g_android; do
+  rmmod "$m" 2>/dev/null || true
+done
+
+# Unbind every gadget (incl. pmOS g1/ncm).
+if [ -d "$CFG" ]; then
+  for gdir in "$CFG"/*; do
+    [ -d "$gdir" ] || continue
+    [ -e "$gdir/UDC" ] || continue
+    echo "" > "$gdir/UDC" 2>/dev/null || true
+  done
+  sleep 1
+  # Remove non-cerro gadget instances so they cannot rebind.
+  for gdir in "$CFG"/*; do
+    [ -d "$gdir" ] || continue
+    case "$(basename "$gdir")" in
+      cerro) ;;
+      *)
+        rm -f "$gdir"/configs/*/* 2>/dev/null || true
+        rmdir "$gdir"/configs/*/strings/* 2>/dev/null || true
+        rmdir "$gdir"/configs/* 2>/dev/null || true
+        rmdir "$gdir"/functions/* 2>/dev/null || true
+        rmdir "$gdir"/strings/* 2>/dev/null || true
+        rmdir "$gdir" 2>/dev/null || true
+        ;;
+    esac
+  done
+fi
+
+mkdir -p "$G" "$G/strings/0x409" "$G/configs/c.1/strings/0x409" \
+  "$G/functions/acm.usb0" "$G/functions/ecm.usb0"
+cd "$G" || exit 1
+echo 0x1d6b > idVendor
+echo 0x0104 > idProduct
+echo 0x0100 > bcdDevice
+echo "cerro-debug" > strings/0x409/serialnumber
+echo "nubia" > strings/0x409/manufacturer
+echo "Z60U USB console+net" > strings/0x409/product
+echo "acm+ecm" > configs/c.1/strings/0x409/configuration
+echo 250 > configs/c.1/MaxPower
+echo 02:11:22:33:44:55 > functions/ecm.usb0/dev_addr
+echo 02:11:22:33:44:56 > functions/ecm.usb0/host_addr
+ln -sfn "$G/functions/acm.usb0" configs/c.1/acm.usb0 2>/dev/null || true
+ln -sfn "$G/functions/ecm.usb0" configs/c.1/ecm.usb0 2>/dev/null || true
+udc=$(ls /sys/class/udc 2>/dev/null | head -n1 || true)
+[ -n "$udc" ] || { echo "cerro-usb-acm: no UDC" >&2; exit 1; }
+echo "$udc" > UDC
+echo "cerro-usb-acm: bound UDC=$udc (acm+ecm)"
+exit 0
+SCRIPTEOF
+chmod 755 /sysroot/usr/local/sbin/cerro-usb-acm.sh
+
+cat >/sysroot/usr/local/sbin/cerro-usbnet-up.sh <<'NETEOF'
+#!/bin/sh
+# Static USB net toward host 192.168.68.1 (see tools/cerro-usbnet-share.sh)
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+IFACE=""
+for n in usb0 usb1 eth0; do
+  [ -d "/sys/class/net/$n" ] || continue
+  # skip if no carrier forever — still configure
+  IFACE=$n
+  break
+done
+[ -n "$IFACE" ] || { echo "cerro-usbnet: no usb iface"; exit 1; }
+ip link set "$IFACE" up || true
+ip addr flush dev "$IFACE" 2>/dev/null || true
+ip addr add 192.168.68.2/24 dev "$IFACE" 2>/dev/null || true
+# Keep the host USB-share route as a fallback.  A live Wi-Fi/DHCP default
+# (normally metric 600) must win when present.
+ip route replace default via 192.168.68.1 dev "$IFACE" metric 2000 2>/dev/null || true
+printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+echo "cerro-usbnet: $IFACE -> 192.168.68.2 via 192.168.68.1"
+exit 0
+NETEOF
+chmod 755 /sysroot/usr/local/sbin/cerro-usbnet-up.sh
+
+cat >/sysroot/etc/systemd/system/cerro-usb-acm.service <<'UNITEOF'
+[Unit]
+Description=Cerro USB ACM+ECM gadget (serial + usbnet)
+DefaultDependencies=no
+After=sysinit.target local-fs.target
+Before=multi-user.target network-pre.target
+Wants=serial-getty@ttyGS0.service cerro-usbnet.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cerro-usb-acm.sh
+# One delayed reclaim (pmOS may race once); script no-ops if already cerro.
+ExecStartPost=/bin/sh -c 'sleep 5; /usr/local/sbin/cerro-usb-acm.sh'
+
+[Install]
+WantedBy=multi-user.target sysinit.target
+UNITEOF
+
+cat >/sysroot/etc/systemd/system/cerro-usbnet.service <<'NETUNITEOF'
+[Unit]
+Description=Cerro USB ethernet client IP (192.168.68.2)
+After=cerro-usb-acm.service network-pre.target
+Wants=cerro-usb-acm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cerro-usbnet-up.sh
+# One short reclaim only — long sleep ExecStartPost stalled multi-user/SDDM.
+ExecStartPost=/bin/sh -c 'sleep 2; /usr/local/sbin/cerro-usbnet-up.sh'
+TimeoutStartSec=12
+TimeoutStopSec=5
+KillMode=mixed
+FinalKillSignal=SIGKILL
+
+[Install]
+WantedBy=multi-user.target
+NETUNITEOF
+mkdir -p /sysroot/etc/systemd/system/cerro-usbnet.service.d
+printf '%s\n' '[Service]' 'TimeoutStartSec=12' 'TimeoutStopSec=5' \
+  'KillMode=mixed' 'FinalKillSignal=SIGKILL' \
+  >/sysroot/etc/systemd/system/cerro-usbnet.service.d/timeout.conf
+# NM wait-online often hangs without Wi-Fi lease and blocks multi-user→graphical.
+mkdir -p /sysroot/etc/systemd/system
+ln -sfn /dev/null \
+  /sysroot/etc/systemd/system/NetworkManager-wait-online.service 2>/dev/null || true
+
+# s5ep: kiwi BT (uart14 / wcn7850) — load QCA HCI + firmware, bring hci0 up
+cat >/sysroot/usr/local/sbin/cerro-bt-up.sh <<'BTEOF'
+#!/bin/sh
+KVER=7.2.0-rc5-dirty
+BASE=/lib/modules/$KVER
+log() { echo "cerro-bt: $*" >/dev/kmsg 2>/dev/null || echo "cerro-bt: $*"; }
+loaded() { lsmod 2>/dev/null | grep -q "^$1 "; }
+load1() {
+  m=$1
+  loaded "$m" && return 0
+  if [ -f "$BASE/${m}.ko" ]; then
+    insmod "$BASE/${m}.ko" && return 0
+  fi
+  f=$(find "$BASE" -name "${m}.ko" 2>/dev/null | head -1)
+  [ -n "$f" ] || return 1
+  insmod "$f"
+}
+# Order matters: kpp → ecc → ecdh_generic → bluetooth → btbcm → btqca → hci_uart
+for m in rfkill kpp ecc ecdh_generic bluetooth btbcm btqca hci_uart; do
+  if load1 "$m"; then
+    log "loaded $m"
+  else
+    log "warn: load $m failed"
+  fi
+done
+i=0
+while [ $i -lt 8 ]; do
+  if dmesg 2>/dev/null | grep -q 'QCA setup on UART is completed'; then
+    break
+  fi
+  [ -e /sys/class/bluetooth/hci0 ] && break
+  sleep 1
+  i=$((i + 1))
+done
+rfkill unblock bluetooth 2>/dev/null || true
+if command -v hciconfig >/dev/null 2>&1; then
+  timeout -k 1 4 hciconfig hci0 up 2>/dev/null || true
+elif command -v btmgmt >/dev/null 2>&1; then
+  timeout -k 1 4 btmgmt -i hci0 power on 2>/dev/null || true
+fi
+log "done; $(hciconfig hci0 2>/dev/null | head -3 | tr '\n' ' ')"
+exit 0
+BTEOF
+chmod 755 /sysroot/usr/local/sbin/cerro-bt-up.sh
+# Dedicated images carry the maintained implementation as an initramfs file.
+# Keep the heredoc above as a fallback for older/general-purpose initramfses.
+if [ -f /cerro-bt-up.sh ]; then
+  cp -a /cerro-bt-up.sh /sysroot/usr/local/sbin/cerro-bt-up.sh
+  chmod 755 /sysroot/usr/local/sbin/cerro-bt-up.sh
+  log "installed maintained cerro-bt-up.sh"
+fi
+
+# Re-assert /etc ownership after planting (cat/cp must not leave it as host uid).
+busybox chown 0:0 /sysroot/etc 2>/dev/null || chown 0:0 /sysroot/etc 2>/dev/null || true
+log "final /etc owner=$(stat -c %u:%g /sysroot/etc 2>/dev/null || echo ?)"
+
+cat >/sysroot/etc/systemd/system/cerro-bt.service <<'BTUNITEOF'
+[Unit]
+Description=Cerro WCN7850 Bluetooth (uart14)
+# After graphics: hung btmgmt must never stall multi-user/SDDM.
+After=graphical.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cerro-bt-up.sh
+TimeoutStartSec=15
+TimeoutStopSec=5
+KillMode=mixed
+FinalKillSignal=SIGKILL
+
+[Install]
+# Not multi-user — that blocks graphical.target when this oneshot hangs.
+WantedBy=default.target
+BTUNITEOF
+# Dedicated images carry the maintained unit as an initramfs file.
+if [ -f /cerro-bt.service ]; then
+  cp -a /cerro-bt.service /sysroot/etc/systemd/system/cerro-bt.service
+  chmod 644 /sysroot/etc/systemd/system/cerro-bt.service
+  log "installed maintained cerro-bt.service"
+fi
+# Never let BT block multi-user/graphical (screenshot 2026-10-19: no limit job).
+rm -f /sysroot/etc/systemd/system/multi-user.target.wants/cerro-bt.service
+mkdir -p /sysroot/etc/systemd/system/cerro-bt.service.d
+printf '%s\n' '[Service]' 'TimeoutStartSec=15' 'TimeoutStopSec=5' \
+  'KillMode=mixed' 'FinalKillSignal=SIGKILL' \
+  >/sysroot/etc/systemd/system/cerro-bt.service.d/timeout.conf
+# Defer BT until 90s after boot via timer (does not block targets).
+cat >/sysroot/etc/systemd/system/cerro-bt.timer <<'BTTIMEREOF'
+[Unit]
+Description=Deferred Cerro Bluetooth bring-up
+[Timer]
+OnBootSec=90
+Unit=cerro-bt.service
+AccuracySec=10s
+[Install]
+WantedBy=timers.target
+BTTIMEREOF
+mkdir -p /sysroot/etc/systemd/system/timers.target.wants
+ln -sfn /etc/systemd/system/cerro-bt.timer \
+  /sysroot/etc/systemd/system/timers.target.wants/cerro-bt.timer 2>/dev/null || true
+
+# Ensure BlueZ daemon is enabled so bluetoothctl sees the controller
+ln -sfn /usr/lib/systemd/system/bluetooth.service \
+  /sysroot/etc/systemd/system/multi-user.target.wants/bluetooth.service 2>/dev/null || \
+ln -sfn /lib/systemd/system/bluetooth.service \
+  /sysroot/etc/systemd/system/multi-user.target.wants/bluetooth.service 2>/dev/null || true
+
+# s5ex: Qualcomm ADSP + WSA/WCD sound card
+cat >/sysroot/usr/local/sbin/cerro-audio-up.sh <<'AUDIOEOF'
+#!/bin/sh
+KVER=$(uname -r)
+BASE=/lib/modules/$KVER
+log() { echo "cerro-audio: $*" >/dev/kmsg 2>/dev/null || echo "cerro-audio: $*"; }
+# Prefer modprobe (resolves deps). Fallback insmod by path.
+loadm() {
+  m=$1
+  mn=$(echo "$m" | tr '-' '_')
+  lsmod 2>/dev/null | grep -q "^$mn " && return 0
+  if command -v modprobe >/dev/null 2>&1; then
+    modprobe "$m" 2>/dev/null && return 0
+  fi
+  f=$(find "$BASE" -name "${m}.ko" -o -name "${mn}.ko" 2>/dev/null | head -1)
+  [ -n "$f" ] || return 1
+  insmod "$f"
+}
+# modules.dep on rootfs is often incomplete for late-copied .ko — refresh once
+if [ ! -f /run/cerro-audio-depmod.stamp ]; then
+  depmod -a 2>/dev/null || true
+  touch /run/cerro-audio-depmod.stamp 2>/dev/null || true
+fi
+if [ ! -f /lib/firmware/qcom/sm8650/adsp.mdt ]; then
+  mkdir -p /mnt/modem /lib/firmware/qcom/sm8650
+  i=0
+  while [ $i -lt 20 ]; do
+    [ -e /dev/disk/by-partlabel/modem_a ] && break
+    sleep 0.5
+    i=$((i + 1))
+  done
+  if mount -t vfat -o ro /dev/disk/by-partlabel/modem_a /mnt/modem 2>/dev/null; then
+    cp -a /mnt/modem/image/adsp.mdt /mnt/modem/image/adsp.b* \
+      /mnt/modem/image/adsp_dtb.mdt /mnt/modem/image/adsp_dtb.b* \
+      /mnt/modem/image/adspr.jsn /mnt/modem/image/adsps.jsn /mnt/modem/image/adspua.jsn \
+      /lib/firmware/qcom/sm8650/ 2>/dev/null || true
+    umount /mnt/modem 2>/dev/null || true
+    log "copied ADSP fw from modem_a"
+  else
+    log "warn: could not mount modem_a for ADSP fw"
+  fi
+fi
+# s5fe: bring ADSP up BEFORE apr/q6prm/macros — otherwise va_macro defers forever
+# on "unable to get macro clock" (q6prm-lpass-clocks needs gpr+ADSP).
+# s5fi: qmi_helpers BEFORE sysmon/PAS — otherwise PAS Unknown symbol and no remoteproc start
+# (ath12k also pulls qmi later; without it early, ADSP never starts before card wait ends)
+for m in soundcore snd snd-timer snd-pcm snd-hwdep snd-compress \
+  qmi_helpers qcom-memshare qcom_pil_info qcom_common qcom_sysmon qcom_q6v5 \
+  rpmsg_core qcom_glink_smem qcom_q6v5_pas; do
+  if loadm "$m"; then log "loaded $m"; else log "warn: load $m failed"; fi
+done
+# PAS serialize (was wrongly After=cellular-prepare / UIM): 12/12 hard-resets
+# started ADSP while MPSS still offline. Wait for modem running here — do NOT
+# gate on cerro-cellular-prepare (that only delayed audio past SDDM/PipeWire).
+mpss_ok=0
+i=0
+while [ $i -lt 120 ]; do
+  for rp in /sys/class/remoteproc/remoteproc*; do
+    [ -e "$rp/name" ] || continue
+    name=$(cat "$rp/name" 2>/dev/null)
+    case "$name" in
+      modem|mpss|*modem*)
+        st=$(cat "$rp/state" 2>/dev/null)
+        if [ "$st" = "offline" ]; then
+          log "starting $name before ADSP (serialize)"
+          sync
+          echo start >"$rp/state" 2>/dev/null || log "warn: start $name rc=$?"
+          st=$(cat "$rp/state" 2>/dev/null)
+        fi
+        log "remoteproc $name state=$st"
+        [ "$st" = "running" ] && mpss_ok=1
+        ;;
+    esac
+  done
+  [ "$mpss_ok" = 1 ] && break
+  sleep 0.5
+  i=$((i + 1))
+done
+if [ "$mpss_ok" != 1 ]; then
+  log "FATAL: MPSS not running — refusing ADSP start (PAS race)"
+  exit 1
+fi
+for rp in /sys/class/remoteproc/remoteproc*; do
+  [ -e "$rp/name" ] || continue
+  name=$(cat "$rp/name" 2>/dev/null)
+  st=$(cat "$rp/state" 2>/dev/null)
+  log "remoteproc $name state=$st"
+  case "$name" in
+    adsp|lpass|*adsp*)
+      if [ "$st" = "offline" ] && [ -f /lib/firmware/qcom/sm8650/adsp.mdt ]; then
+        log "starting $name (fw ready, MPSS up)"
+        sync
+        echo start >"$rp/state" 2>/dev/null || log "warn: start $name rc=$?"
+      fi
+      i=0
+      while [ $i -lt 30 ]; do
+        st=$(cat "$rp/state" 2>/dev/null)
+        [ "$st" = "running" ] && break
+        sleep 0.5
+        i=$((i + 1))
+      done
+      log "remoteproc $name state=$(cat "$rp/state" 2>/dev/null)"
+      ;;
+  esac
+done
+# Wait for glink channel that hosts GPR (qcom,gpr / adsp_apps)
+i=0
+while [ $i -lt 40 ]; do
+  if ls /sys/bus/rpmsg/devices/*adsp_apps* >/dev/null 2>&1; then
+    log "rpmsg adsp_apps present"
+    break
+  fi
+  sleep 0.25
+  i=$((i + 1))
+done
+# Now APR/GPR + AudioReach + LPASS clocks + macros + machine
+for m in qcom_pdr_msg pdr_interface apr \
+  slimbus slim-qcom-ngd-ctrl \
+  soundwire-bus regmap-sdw regmap-slimbus soundwire-qcom \
+  snd-soc-core \
+  snd-q6dsp-common snd-q6apm q6prm q6prm-clocks q6apm-dai q6apm-lpass-dais \
+  snd-soc-qcom-common snd-soc-qcom-sdw \
+  pinctrl-lpass-lpi pinctrl-sm8650-lpass-lpi \
+  snd-soc-lpass-macro-common snd-soc-lpass-rx-macro snd-soc-lpass-tx-macro \
+  snd-soc-lpass-va-macro snd-soc-lpass-wsa-macro \
+  snd-soc-wcd-common snd-soc-wcd-classh snd-soc-wcd-mbhc \
+  snd-soc-wcd939x-sdw snd-soc-wcd939x snd-soc-wsa884x \
+  snd-soc-sc8280xp; do
+  if loadm "$m"; then log "loaded $m"; else log "warn: load $m failed"; fi
+done
+# Ensure topology for sound model SM8650-CERRO (s5fg)
+mkdir -p /lib/firmware/qcom/sm8650
+if [ ! -f /lib/firmware/qcom/sm8650/SM8650-CERRO-tplg.bin ]; then
+  if [ -f /lib/firmware/qcom/sm8650/SM8650-CERRO-tplg.bin.zst ]; then
+    log "warn: CERRO tplg only as .zst (need decompressed .bin)"
+  elif [ -f /lib/firmware/qcom/sm8650/SM8650-QRD-tplg.bin ]; then
+    cp -a /lib/firmware/qcom/sm8650/SM8650-QRD-tplg.bin /lib/firmware/qcom/sm8650/SM8650-CERRO-tplg.bin
+    log "staged CERRO tplg from QRD bin"
+  else
+    log "warn: missing SM8650-CERRO-tplg.bin"
+  fi
+else
+  log "CERRO tplg present ($(wc -c </lib/firmware/qcom/sm8650/SM8650-CERRO-tplg.bin) bytes)"
+fi
+# s5fh: SoundWire/ASoC probe often finishes AFTER first sleep5 — poll for card
+i=0
+while [ $i -lt 90 ]; do
+  if grep -q SM8650CERRO /proc/asound/cards 2>/dev/null; then
+    log "card ready after ${i}s"
+    break
+  fi
+  sleep 1
+  i=$((i + 1))
+done
+log "cards=$(cat /proc/asound/cards 2>/dev/null | tr '\n' ';')"
+aplay -l 2>/dev/null | head -20 | while read -r L; do log "$L"; done
+# s5fv: AW88261 via PRIMARY_MI2S → MultiMedia1 (device 0); not WSA MultiMedia2
+if grep -q SM8650CERRO /proc/asound/cards 2>/dev/null; then
+  amixer -c0 cset name='PRIMARY_MI2S_RX Audio Mixer MultiMedia1' on,on >/dev/null 2>&1 || \
+    amixer -c0 cset name='PRIMARY_MI2S_RX Audio Mixer MultiMedia1' 1,1 >/dev/null 2>&1 || true
+  log "PRIMARY_MI2S MultiMedia1 speaker route applied"
+else
+  log "warn: no SM8650CERRO card after wait — skip mixer route"
+fi
+exit 0
+AUDIOEOF
+chmod 755 /sysroot/usr/local/sbin/cerro-audio-up.sh
+
+# s5fj: UCM + KDE/Pulse session sink helper
+mkdir -p /sysroot/usr/share/alsa/ucm2/Qualcomm/sm8650/CERRO \
+  /sysroot/usr/share/alsa/ucm2/conf.d/sm8650 \
+  /sysroot/usr/lib/systemd/user \
+  /sysroot/etc/xdg/autostart
+if [ -f /ucm-stage/SM8650-CERRO.conf ]; then
+  cp -a /ucm-stage/SM8650-CERRO.conf /sysroot/usr/share/alsa/ucm2/Qualcomm/sm8650/CERRO/
+  cp -a /ucm-stage/HiFi.conf /sysroot/usr/share/alsa/ucm2/Qualcomm/sm8650/CERRO/
+  ln -sfn ../../Qualcomm/sm8650/CERRO/SM8650-CERRO.conf \
+    /sysroot/usr/share/alsa/ucm2/conf.d/sm8650/SM8650-CERRO.conf
+  log "staged SM8650-CERRO UCM"
+fi
+if [ -f /ucm-stage/cerro-audio-session.sh ]; then
+  install -m755 /ucm-stage/cerro-audio-session.sh /sysroot/usr/local/sbin/cerro-audio-session.sh
+else
+  install -m755 /usr/local/sbin/cerro-audio-session.sh /sysroot/usr/local/sbin/cerro-audio-session.sh 2>/dev/null || true
+fi
+cat >/sysroot/usr/lib/systemd/user/cerro-audio-session.service <<'SESSUNITEOF'
+[Unit]
+Description=Cerro expose Pulse speaker sink for KDE
+After=pipewire.service pipewire-pulse.service wireplumber.service sound.target
+Wants=pipewire.service pipewire-pulse.service wireplumber.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cerro-audio-session.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target
+SESSUNITEOF
+mkdir -p /sysroot/etc/systemd/user/default.target.wants
+ln -sfn /usr/lib/systemd/user/cerro-audio-session.service \
+  /sysroot/etc/systemd/user/default.target.wants/cerro-audio-session.service
+cat >/sysroot/etc/xdg/autostart/cerro-audio-session.desktop <<'DESKEOF'
+[Desktop Entry]
+Type=Application
+Name=Cerro Audio Session
+Exec=/usr/local/sbin/cerro-audio-session.sh
+X-KDE-autostart-phase=1
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+DESKEOF
+
+cat >/sysroot/etc/systemd/system/cerro-audio.service <<'AUDIOUNITEOF'
+[Unit]
+Description=Cerro SM8650 ADSP / WSA sound
+After=local-fs.target cerro-remoteproc-prepare.service
+Before=sound.target display-manager.service sddm.service
+Wants=cerro-remoteproc-prepare.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cerro-audio-up.sh
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target
+AUDIOUNITEOF
+mkdir -p /sysroot/etc/systemd/system/multi-user.target.wants \
+  /sysroot/etc/systemd/system/sddm.service.d
+ln -sfn /etc/systemd/system/cerro-audio.service \
+  /sysroot/etc/systemd/system/multi-user.target.wants/cerro-audio.service
+rm -f /sysroot/etc/systemd/system/timers.target.wants/cerro-audio.timer \
+  /sysroot/etc/systemd/system/cerro-audio.timer \
+  /sysroot/etc/systemd/system/cerro-audio.service.d/zz-stability-adsp-serialize-c1.conf
+cat >/sysroot/etc/systemd/system/sddm.service.d/cerro-after-audio.conf <<'SDDMAFTEREOF'
+[Unit]
+# PipeWire in greeter/session must not probe ALSA before the card exists.
+After=cerro-audio.service sound.target
+Wants=cerro-audio.service
+SDDMAFTEREOF
+# bootfix (restart PW after sleep) is a race bandage — drop it once ordering holds
+rm -f /sysroot/home/rong/.config/systemd/user/cerro-audio-bootfix.service \
+  /sysroot/home/rong/.config/systemd/user/default.target.wants/cerro-audio-bootfix.service \
+  /sysroot/usr/lib/systemd/user/cerro-audio-bootfix.service \
+  /sysroot/etc/systemd/user/default.target.wants/cerro-audio-bootfix.service 2>/dev/null || true
+
+# s5es: kiwi WiFi (PCIe 17cb:1107 / ath12k + ath12k_wifi7)
+cat >/sysroot/usr/local/sbin/cerro-wifi-up.sh <<'WIFIEOF'
+#!/bin/sh
+KVER=7.2.0-rc5-dirty
+BASE=/lib/modules/$KVER
+log() { echo "cerro-wifi: $*" >/dev/kmsg 2>/dev/null || echo "cerro-wifi: $*"; }
+loaded() { lsmod 2>/dev/null | grep -q "^$1 "; }
+load1() {
+  m=$1
+  loaded "$m" && return 0
+  if [ -f "$BASE/${m}.ko" ]; then
+    insmod "$BASE/${m}.ko" && return 0
+  fi
+  f=$(find "$BASE" -name "${m}.ko" 2>/dev/null | head -1)
+  [ -n "$f" ] || return 1
+  insmod "$f"
+}
+# mhi is builtin. Need ath12k then ath12k_wifi7 (PCI ID table / WCN7850).
+for m in rfkill libarc4 cfg80211 mac80211 qmi_helpers ath12k ath12k_wifi7; do
+  if load1 "$m"; then
+    log "loaded $m"
+  else
+    log "warn: load $m failed"
+  fi
+done
+i=0
+while [ $i -lt 12 ]; do
+  [ -e /sys/class/net/wlan0 ] && break
+  sleep 1
+  i=$((i + 1))
+done
+rfkill unblock wifi 2>/dev/null || true
+ip link set wlan0 up 2>/dev/null || true
+log "done; $(ip -br link show wlan0 2>/dev/null | tr '\n' ' ')"
+exit 0
+WIFIEOF
+chmod 755 /sysroot/usr/local/sbin/cerro-wifi-up.sh
+
+cat >/sysroot/etc/systemd/system/cerro-wifi.service <<'WIFIUNITEOF'
+[Unit]
+Description=Cerro WCN7850 WiFi (ath12k)
+After=local-fs.target cerro-usb-acm.service
+Wants=cerro-usb-acm.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cerro-wifi-up.sh
+# No second ExecStartPost — double run + 30s poll blocked boot.
+TimeoutStartSec=20
+TimeoutStopSec=5
+KillMode=mixed
+FinalKillSignal=SIGKILL
+
+[Install]
+WantedBy=multi-user.target
+WIFIUNITEOF
+mkdir -p /sysroot/etc/systemd/system/cerro-wifi.service.d
+printf '%s\n' '[Service]' 'TimeoutStartSec=20' 'TimeoutStopSec=5' \
+  'KillMode=mixed' 'FinalKillSignal=SIGKILL' \
+  >/sysroot/etc/systemd/system/cerro-wifi.service.d/timeout.conf
+ln -sfn /etc/systemd/system/cerro-wifi.service \
+  /sysroot/etc/systemd/system/multi-user.target.wants/cerro-wifi.service 2>/dev/null || true
+
+mkdir -p /sysroot/etc/systemd/system/serial-getty@ttyGS0.service.d
+cat >/sysroot/etc/systemd/system/serial-getty@ttyGS0.service.d/cerro.conf <<'DROPEOF'
+[Unit]
+After=cerro-usb-acm.service
+BindsTo=
+Requires=cerro-usb-acm.service
+DROPEOF
+
+# Kill pmOS default NCM gadget (serial becomes nubia,cerro / product developer).
+if [ -f /sysroot/etc/deviceinfo ]; then
+  sed -i \
+    -e 's/^deviceinfo_usb_network_function=.*/deviceinfo_usb_network_function=/' \
+    -e 's/^deviceinfo_usb_network_function/# &/' \
+    /sysroot/etc/deviceinfo 2>/dev/null || true
+  grep -q '^deviceinfo_usb_network_function=' /sysroot/etc/deviceinfo 2>/dev/null \
+    || echo 'deviceinfo_usb_network_function=' >> /sysroot/etc/deviceinfo
+fi
+# Mask common gadget unit names (ignore missing).
+for u in \
+  usb-gadget usbgadget usb_gadget \
+  setup-usb-gadget setup_usb_gadget \
+  postmarketos-usb-gadget pmos-usb-gadget \
+  unl0kr-usb android-usb adbd; do
+  ln -sfn /dev/null "/sysroot/etc/systemd/system/${u}.service" 2>/dev/null || true
+done
+# Drop any wants that pull gadget scripts.
+rm -f /sysroot/etc/systemd/system/multi-user.target.wants/*usb*gadget* 2>/dev/null || true
+rm -f /sysroot/etc/systemd/system/sysinit.target.wants/*usb*gadget* 2>/dev/null || true
+# Enable cerro BT + USB units
+ln -sfn /etc/systemd/system/cerro-usb-acm.service /sysroot/etc/systemd/system/multi-user.target.wants/cerro-usb-acm.service 2>/dev/null || true
+# usbnet must NOT block multi-user/graphical (oneshot hung past TimeoutStartSec).
+rm -f /sysroot/etc/systemd/system/multi-user.target.wants/cerro-usbnet.service
+cat >/sysroot/etc/systemd/system/cerro-usbnet.timer <<'NETTIMEREOF'
+[Unit]
+Description=Deferred Cerro USB net IP
+[Timer]
+OnBootSec=45
+Unit=cerro-usbnet.service
+AccuracySec=5s
+[Install]
+WantedBy=timers.target
+NETTIMEREOF
+mkdir -p /sysroot/etc/systemd/system/timers.target.wants
+ln -sfn /etc/systemd/system/cerro-usbnet.timer \
+  /sysroot/etc/systemd/system/timers.target.wants/cerro-usbnet.timer 2>/dev/null || true
+# BT must NOT be in multi-user.wants (blocks SDDM when btmgmt hangs).
+rm -f /sysroot/etc/systemd/system/multi-user.target.wants/cerro-bt.service
+# Disable OpenRC usb gadget if present.
+rm -f /sysroot/etc/runlevels/*/usb*gadget* 2>/dev/null || true
+chmod a-x /sysroot/usr/bin/usb-gadget 2>/dev/null || true
+chmod a-x /sysroot/sbin/usb-gadget 2>/dev/null || true
+
+# Visible tty1 banner (user saw only blinking underscore).
+MEMLINE=$(grep MemTotal /proc/meminfo 2>/dev/null || echo MemTotal:unknown)
+{
+  echo
+  echo "========================================"
+  echo "  nubia-cerro  (s5ci ACM+ECM reclaim)"
+  echo "  $MEMLINE"
+  echo "  login: user / user"
+  echo "  USB: ACM ttyGS0 + ECM 192.168.68.2"
+  echo "========================================"
+  echo
+} >/sysroot/etc/issue
+ln -sfn /lib/systemd/system/getty@.service \
+  /sysroot/etc/systemd/system/getty.target.wants/getty@tty1.service 2>/dev/null || true
+
+ln -sfn /etc/systemd/system/cerro-usb-acm.service \
+  /sysroot/etc/systemd/system/multi-user.target.wants/cerro-usb-acm.service
+ln -sfn /etc/systemd/system/cerro-usb-acm.service \
+  /sysroot/etc/systemd/system/sysinit.target.wants/cerro-usb-acm.service
+# usbnet via timer only (see cerro-usbnet.timer above) — never multi-user.wants.
+rm -f /sysroot/etc/systemd/system/multi-user.target.wants/cerro-usbnet.service
+ln -sfn /lib/systemd/system/serial-getty@.service \
+  /sysroot/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service
+grep -qx 'ttyGS0' /sysroot/etc/securetty 2>/dev/null || echo ttyGS0 >> /sysroot/etc/securetty
+
+# Keep qbootctl available for read-only diagnostics, but never mark A/B metadata
+# as a side effect of an unrelated hardware candidate boot.
+if [ -x /cerro-overlay/usr/bin/qbootctl ]; then
+  mkdir -p /sysroot/usr/bin \
+    /sysroot/usr/lib/systemd/system \
+    /sysroot/etc/systemd/system
+  cp -a /cerro-overlay/usr/bin/qbootctl /sysroot/usr/bin/qbootctl
+  cp -a /cerro-overlay/usr/lib/systemd/system/qbootctl.service \
+    /sysroot/usr/lib/systemd/system/qbootctl.service
+  rm -f /sysroot/etc/systemd/system/multi-user.target.wants/qbootctl.service
+  ln -sfn /dev/null /sysroot/etc/systemd/system/qbootctl.service
+  log "planted qbootctl diagnostics; automatic mark-success masked"
+else
+  log "WARN: no /cerro-overlay/usr/bin/qbootctl in initramfs"
+fi
+
+echo "s5ca $(cat /proc/uptime) $(uname -r)" >/sysroot/cerro-s5ca-switched 2>/dev/null || true
+sync
+
+cat >/sysroot/cerro-sd-prep <<'INITEOF'
+#!/bin/busybox ash
+export PATH=/usr/bin:/bin:/sbin:/usr/sbin
+/bin/busybox --install -s 2>/dev/null || true
+mount -t proc proc /proc 2>/dev/null
+mount -t sysfs sysfs /sys 2>/dev/null
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+mkdir -p /dev/pts /run /tmp /sys/fs/cgroup /run/systemd /var/tmp /sys/kernel/config
+mount -t devpts devpts /dev/pts 2>/dev/null || true
+mount -t tmpfs -o mode=755,nodev,nosuid,strictatime tmpfs /run
+mount -t tmpfs tmpfs /tmp
+mount -t configfs configfs /sys/kernel/config 2>/dev/null || true
+mount -t cgroup2 -o nsdelegate cgroup2 /sys/fs/cgroup 2>/dev/null || \
+  mount -t cgroup2 cgroup2 /sys/fs/cgroup 2>/dev/null || true
+# Unblank fb + reclaim ACM before systemd (pmOS NCM races early).
+echo 0 >/sys/class/graphics/fb0/blank 2>/dev/null || true
+printf '\033[2J\033[Hcerro-sd-prep: reclaim USB + start systemd\n' >/dev/tty1 2>/dev/null || true
+[ -x /usr/local/sbin/cerro-usb-acm.sh ] && /usr/local/sbin/cerro-usb-acm.sh >/dev/kmsg 2>&1 || true
+echo "cerro-sd-prep: exec systemd" >/dev/kmsg 2>/dev/null || true
+if [ -x /lib/systemd/systemd ]; then
+  exec /lib/systemd/systemd --system
+fi
+exec /usr/lib/systemd/systemd --system
+INITEOF
+chmod 755 /sysroot/cerro-sd-prep
+
+log "planted ACM reclaim + tty1 issue; switch_root"
+MEMLINE=$(grep MemTotal /proc/meminfo 2>/dev/null || echo MemTotal:unknown)
+log "BANK_MEM $MEMLINE"
+[ "$CONSOLE_ON" = 1 ] && echo "BANK_MEM $MEMLINE" >/dev/ttyGS0 2>/dev/null || true
+echo "BANK_MEM $MEMLINE" >/sysroot/cerro-bank-mem.txt 2>/dev/null || true
+echo "s5ci $(cat /proc/uptime) $(uname -r)" >/sysroot/cerro-s5ci-switched 2>/dev/null || true
+
+# Native Debian selector. Supports:
+# 1) Legacy: /debian-root under pmOS/userdata (bind-mount then switch_root)
+# 2) Dual-boot flat: /.cerro-native-debian on cerro_linux (switch_root /sysroot)
+# Dedicated Debian images carry an initramfs marker because Cerro ABL drops the
+# boot-header cmdline token. Images without either trigger keep the pmOS path.
+SWITCH_ROOT=/sysroot
+if [ -f /cerro-userland-debian ] || \
+   grep -qw 'cerro_userland=debian' /proc/cmdline 2>/dev/null; then
+  if [ -f /sysroot/debian-root/.cerro-native-debian ] && \
+     [ -x /sysroot/debian-root/sbin/init ] && \
+     [ -x /sysroot/debian-root/cerro-sd-prep ]; then
+    mkdir -p /debianroot
+    if ! mount --bind /sysroot/debian-root /debianroot; then
+      log "FAIL: bind-mount Debian root"
+      sleep 120
+      reboot -f 2>/dev/null || echo b >/proc/sysrq-trigger
+    fi
+    SWITCH_ROOT=/debianroot
+  elif [ -f /sysroot/.cerro-native-debian ] && \
+       [ -e /sysroot/sbin/init ] && \
+       [ -x /sysroot/cerro-sd-prep ]; then
+    SWITCH_ROOT=/sysroot
+    log "native Debian flat root on cerro_linux"
+  else
+    log "FAIL: Debian root is incomplete; refusing native switch"
+    echo "FAIL: incomplete Debian root" >/dev/tty1 2>/dev/null || true
+    sleep 120
+    reboot -f 2>/dev/null || echo b >/proc/sysrq-trigger
+  fi
+
+  # Install into the native-Debian root (nested /debian-root or flat cerro_linux).
+  # Writable remote EFS was explicitly authorized after byte-exact backups of
+  # modemst1, modemst2, fsc, and fsg were verified.
+  mkdir -p "$SWITCH_ROOT/etc/systemd/system/rmtfs.service.d" \
+    "$SWITCH_ROOT/etc/systemd/system/pd-mapper.service.d" \
+    "$SWITCH_ROOT/etc/systemd/system/ModemManager.service.d" \
+    "$SWITCH_ROOT/usr/local/sbin" \
+    "$SWITCH_ROOT/usr/local/libexec" \
+    "$SWITCH_ROOT/etc/systemd/system/multi-user.target.wants"
+
+  # The generic module staging above targets the outer userdata root.  Native
+  # Debian lives below /debian-root, so carry this boot candidate's external
+  # memshare module across that second root boundary before systemd starts.
+  NATIVE_KVER=$(uname -r)
+  NATIVE_MEMSHARE="/lib/modules/$NATIVE_KVER/extra/qcom-memshare.ko"
+  if [ -f "$NATIVE_MEMSHARE" ]; then
+    mkdir -p "$SWITCH_ROOT/lib/modules/$NATIVE_KVER/extra"
+    if cp -a "$NATIVE_MEMSHARE" \
+        "$SWITCH_ROOT/lib/modules/$NATIVE_KVER/extra/qcom-memshare.ko" && \
+       cmp "$NATIVE_MEMSHARE" \
+        "$SWITCH_ROOT/lib/modules/$NATIVE_KVER/extra/qcom-memshare.ko"; then
+      depmod -b "$SWITCH_ROOT" "$NATIVE_KVER" 2>/dev/null || \
+        log "WARN: native Debian memshare depmod failed"
+      log "staged qcom-memshare into native Debian root"
+    else
+      log "WARN: failed to stage qcom-memshare into native Debian root"
+    fi
+  else
+    log "WARN: qcom-memshare absent from embedded module tree"
+  fi
+  if modprobe qcom-memshare 2>/dev/null; then
+    log "loaded qcom-memshare before native Debian systemd"
+  else
+    log "WARN: early native Debian qcom-memshare load failed"
+  fi
+  cat >"$SWITCH_ROOT/etc/systemd/system/cerro-remoteproc-prepare.service" <<'REMOTEPROCEOF'
+[Unit]
+Description=Cerro remoteproc drivers before PD mapper and modem startup
+After=local-fs.target systemd-modules-load.service
+Before=pd-mapper.service rmtfs.service cerro-audio.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe rmtfs_mem
+ExecStart=/sbin/modprobe qcom-memshare
+ExecStart=/sbin/modprobe qcom_q6v5_pas
+ExecStart=/sbin/modprobe ipa
+ExecStart=/sbin/modprobe qrtr_smd
+ExecStart=/sbin/modprobe rmnet
+
+[Install]
+WantedBy=multi-user.target
+REMOTEPROCEOF
+  cat >"$SWITCH_ROOT/etc/systemd/system/pd-mapper.service.d/cerro-remoteproc-order.conf" <<'PDMAPPEREOF'
+[Unit]
+Requires=cerro-remoteproc-prepare.service
+After=cerro-remoteproc-prepare.service
+PDMAPPEREOF
+  rm -f "$SWITCH_ROOT/etc/systemd/system/rmtfs.service.d/cerro-read-only.conf"
+  cat >"$SWITCH_ROOT/etc/systemd/system/rmtfs.service.d/zz-cerro-writable.conf" <<'RMTFSEOF'
+[Unit]
+Requires=cerro-remoteproc-prepare.service tqftpserv.service pd-mapper.service
+After=local-fs.target systemd-modules-load.service cerro-remoteproc-prepare.service tqftpserv.service pd-mapper.service
+
+[Service]
+ExecStartPre=-/sbin/modprobe rmtfs_mem
+ExecStartPre=-/sbin/modprobe qcom-memshare
+ExecStartPre=-/sbin/modprobe qcom_q6v5_pas
+ExecStartPre=-/sbin/modprobe ipa
+ExecStartPre=-/sbin/modprobe qrtr_smd
+ExecStartPre=-/sbin/modprobe rmnet
+ExecStart=
+ExecStart=/usr/bin/rmtfs -P -s
+RMTFSEOF
+  if [ -f /cerro-pdmap-stage.sh ] && \
+     [ -f /cerro-pdmap-stage.service ] && \
+     [ -f /cerro-pdmap-stage-order.conf ]; then
+    cp /cerro-pdmap-stage.sh \
+      "$SWITCH_ROOT/usr/local/sbin/cerro-pdmap-stage.sh"
+    cp /cerro-pdmap-stage.service \
+      "$SWITCH_ROOT/etc/systemd/system/cerro-pdmap-stage.service"
+    cp /cerro-pdmap-stage-order.conf \
+      "$SWITCH_ROOT/etc/systemd/system/pd-mapper.service.d/zz-cerro-pdmap-stage.conf"
+    chmod 755 "$SWITCH_ROOT/usr/local/sbin/cerro-pdmap-stage.sh"
+    chmod 644 "$SWITCH_ROOT/etc/systemd/system/cerro-pdmap-stage.service"
+    chmod 644 \
+      "$SWITCH_ROOT/etc/systemd/system/pd-mapper.service.d/zz-cerro-pdmap-stage.conf"
+  else
+    log "WARN: pd-map staging payload absent; leaving existing root files"
+  fi
+  if [ -f /cerro-cellular-meta.sh ] && \
+     [ -f /cerro-qmi-dms-set-meta.py ] && \
+     [ -f /cerro-cellular-meta.service ] && \
+     [ -f /cerro-cellular-prepare.sh ] && \
+     [ -f /cerro-cellular-prepare.service ] && \
+     [ -f /cerro-modemmanager-order.conf ]; then
+    cp /cerro-cellular-meta.sh \
+      "$SWITCH_ROOT/usr/local/sbin/cerro-cellular-meta.sh"
+    cp /cerro-qmi-dms-set-meta.py \
+      "$SWITCH_ROOT/usr/local/libexec/cerro-qmi-dms-set-meta.py"
+    cp /cerro-cellular-meta.service \
+      "$SWITCH_ROOT/etc/systemd/system/cerro-cellular-meta.service"
+    cp /cerro-cellular-prepare.sh \
+      "$SWITCH_ROOT/usr/local/sbin/cerro-cellular-prepare.sh"
+    cp /cerro-cellular-prepare.service \
+      "$SWITCH_ROOT/etc/systemd/system/cerro-cellular-prepare.service"
+    cp /cerro-modemmanager-order.conf \
+      "$SWITCH_ROOT/etc/systemd/system/ModemManager.service.d/cerro-cellular-order.conf"
+    chmod 755 \
+      "$SWITCH_ROOT/usr/local/sbin/cerro-cellular-meta.sh" \
+      "$SWITCH_ROOT/usr/local/libexec/cerro-qmi-dms-set-meta.py" \
+      "$SWITCH_ROOT/usr/local/sbin/cerro-cellular-prepare.sh"
+    chmod 644 \
+      "$SWITCH_ROOT/etc/systemd/system/cerro-cellular-meta.service" \
+      "$SWITCH_ROOT/etc/systemd/system/cerro-cellular-prepare.service" \
+      "$SWITCH_ROOT/etc/systemd/system/ModemManager.service.d/cerro-cellular-order.conf"
+  else
+    log "WARN: early cellular meta payload absent; leaving existing root files"
+  fi
+  rm -f "$SWITCH_ROOT/etc/systemd/system/rmtfs.service"
+  ln -sfn /usr/lib/systemd/system/rmtfs.service \
+    "$SWITCH_ROOT/etc/systemd/system/multi-user.target.wants/rmtfs.service"
+  ln -sfn /etc/systemd/system/cerro-remoteproc-prepare.service \
+    "$SWITCH_ROOT/etc/systemd/system/multi-user.target.wants/cerro-remoteproc-prepare.service"
+  ln -sfn /etc/systemd/system/cerro-pdmap-stage.service \
+    "$SWITCH_ROOT/etc/systemd/system/multi-user.target.wants/cerro-pdmap-stage.service"
+  ln -sfn /etc/systemd/system/cerro-cellular-meta.service \
+    "$SWITCH_ROOT/etc/systemd/system/multi-user.target.wants/cerro-cellular-meta.service"
+  ln -sfn /etc/systemd/system/cerro-cellular-prepare.service \
+    "$SWITCH_ROOT/etc/systemd/system/multi-user.target.wants/cerro-cellular-prepare.service"
+  rm -f "$SWITCH_ROOT/etc/systemd/system/multi-user.target.wants/qrtr-ns.service"
+  ln -sfn /dev/null "$SWITCH_ROOT/etc/systemd/system/qrtr-ns.service"
+  log "native Debian cellular: stock PD maps + remoteproc -> tqftp/pd-mapper -> writable rmtfs -> stock meta -> UIM; userspace qrtr-ns masked"
+
+  echo "BANK_MEM $MEMLINE" >"$SWITCH_ROOT/cerro-bank-mem.txt" 2>/dev/null || true
+  echo "native-debian $(cat /proc/uptime) $(uname -r)" \
+    >"$SWITCH_ROOT/cerro-native-switched" 2>/dev/null || true
+  log "native Debian root bind-mounted; switch_root -> Debian systemd"
+  printf '\033[2J\033[HNative Debian 13 switch_root — watch for login banner\n' >/dev/tty1 2>/dev/null || true
+else
+  printf '\033[2J\033[Hs5ci switch_root — watch for login banner\n' >/dev/tty1 2>/dev/null || true
+fi
+sleep 2
+exec switch_root "$SWITCH_ROOT" /cerro-sd-prep
+
+log "switch_root FAILED"
+sleep 120
+reboot -f 2>/dev/null || echo b >/proc/sysrq-trigger
+while true; do sleep 3600; done

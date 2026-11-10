@@ -44,7 +44,8 @@ tested development GUI, not the promised final general-purpose camera app.
 
 `tools/cerro-build-boot.sh LABEL` is the existing phone's full boot-packaging
 entry, requiring a locally verified `REF_BOOT` and the matching known-good
-embedded initramfs. The public source build deliberately does not fabricate
+embedded initramfs. `tools/cerro-init/init` is a historical source snapshot; it is not silently
+substituted for the running verified initramfs. The public source build deliberately does not fabricate
 those private deployment inputs. Default source outputs are **not flashable**.
 Do not substitute an arbitrary Android ramdisk. Packaging is header v2, page4096,
 127-byte stub, Image padding to its ARM64 `image_size`, appended DTB and96MiB
