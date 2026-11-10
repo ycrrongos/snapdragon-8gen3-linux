@@ -1,0 +1,13 @@
+[Unit]
+Description=Call audio routing daemon (cerro)
+Documentation=man:callaudiod(1)
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+BusName=org.mobian_project.CallAudio
+ExecStart=/usr/bin/callaudiod
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

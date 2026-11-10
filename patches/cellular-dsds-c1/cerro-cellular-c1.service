@@ -1,0 +1,27 @@
+[Unit]
+Description=Cerro dual SIM messaging and mobile data
+Requires=cerro-cellular-prepare.service ModemManager.service NetworkManager.service
+After=cerro-cellular-prepare.service ModemManager.service NetworkManager.service
+
+[Service]
+Type=notify
+ExecStart=/usr/local/libexec/cerro-cellular-c1/cellular_daemon.py
+TimeoutStartSec=240
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=3
+User=root
+Group=user
+RuntimeDirectory=cerro-cellular
+RuntimeDirectoryMode=0755
+StateDirectory=cerro-cellular-c1
+StateDirectoryMode=0700
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_QIPCRTR
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_CHOWN
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+# usb-dp3 (2026-11-09): do NOT set QCOM_PMIC_GLINK=y — that breaks updates/
+# qcom_battmgr.ko + ucsi_glink.ko (battery + OTG/UCSI). Keep =m.
+# DRM_AUX_HPD_BRIDGE stays =m via select from PMIC_GLINK; ship aux-hpd-bridge.ko
+# + pmic_glink_altmode.ko in updates/ and modules-load (see install-on-phone.sh).
+# CONFIG_LOCALVERSION_AUTO=n so vermagic matches existing updates/*.ko.
+# CONFIG_LOCALVERSION_AUTO is not set
+CONFIG_QCOM_PMIC_GLINK=m
+CONFIG_DRM_AUX_HPD_BRIDGE=m

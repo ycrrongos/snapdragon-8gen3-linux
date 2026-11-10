@@ -1,0 +1,16 @@
+[Unit]
+Description=Configure Cerro WCN7850 after the unconfigured address
+After=bluetooth.service cerro-bt.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cerro-bt-configure.sh
+TimeoutStartSec=150
+TimeoutStopSec=5
+KillMode=mixed
+FinalKillSignal=SIGKILL
+
+[Install]
+WantedBy=multi-user.target

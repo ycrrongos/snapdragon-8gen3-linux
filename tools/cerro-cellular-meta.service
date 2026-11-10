@@ -1,0 +1,14 @@
+[Unit]
+Description=Cerro modem: early stock AP Meta_Build_ID handoff
+Requires=rmtfs.service
+After=rmtfs.service tqftpserv.service pd-mapper.service
+Before=cerro-cellular-prepare.service ModemManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cerro-cellular-meta.sh
+TimeoutStartSec=150
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+diff --git a/drivers/power/supply/qcom_battmgr.c b/drivers/power/supply/qcom_battmgr.c
+index 490137a23..ebee1acbf 100644
+--- a/drivers/power/supply/qcom_battmgr.c
++++ b/drivers/power/supply/qcom_battmgr.c
+@@ -1616,6 +1616,7 @@ static const struct of_device_id qcom_battmgr_of_variants[] = {
+ 	{ .compatible = "qcom,sc8180x-pmic-glink", .data = (void *)QCOM_BATTMGR_SC8280XP },
+ 	{ .compatible = "qcom,sc8280xp-pmic-glink", .data = (void *)QCOM_BATTMGR_SC8280XP },
+ 	{ .compatible = "qcom,sm8550-pmic-glink", .data = (void *)QCOM_BATTMGR_SM8550 },
++	{ .compatible = "qcom,sm8650-pmic-glink", .data = (void *)QCOM_BATTMGR_SM8550 },
+ 	{ .compatible = "qcom,x1e80100-pmic-glink", .data = (void *)QCOM_BATTMGR_X1E80100 },
+ 	/* Unmatched devices falls back to QCOM_BATTMGR_SM8350 */
+ 	{}
+@@ -1658,6 +1659,17 @@ static int qcom_battmgr_probe(struct auxiliary_device *adev,
+ 	else
+ 		battmgr->variant = QCOM_BATTMGR_SM8350;
+ 
++	/*
++	 * SM8350/SM8550 use per-property GET (not BATTMGR_BAT_INFO), so
++	 * power_unit is never filled and stays 0 (= mWh). CHARGE_FULL* then
++	 * always returns -ENODATA even though firmware reports µAh values.
++	 * Cerro/SM8650 matches SM8550 and hits this; force mAh for the
++	 * property-based variants.
++	 */
++	if (battmgr->variant == QCOM_BATTMGR_SM8350 ||
++	    battmgr->variant == QCOM_BATTMGR_SM8550)
++		battmgr->unit = QCOM_BATTMGR_UNIT_mAh;
++
+ 	ret = qcom_battmgr_charge_control_thresholds_init(battmgr);
+ 	if (ret < 0)
+ 		return dev_err_probe(dev, ret,

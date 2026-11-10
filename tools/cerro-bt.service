@@ -1,0 +1,19 @@
+[Unit]
+Description=Cerro WCN7850 Bluetooth (uart14)
+# Start after graphics so a hung btmgmt cannot block SDDM/login.
+After=graphical.target
+Wants=
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cerro-bt-up.sh
+# btmgmt can ignore SIGTERM; force-kill the whole cgroup.
+TimeoutStartSec=15
+TimeoutStopSec=5
+KillMode=mixed
+FinalKillSignal=SIGKILL
+
+[Install]
+# Do NOT WantedBy=multi-user.target — that stalls graphical.target.
+WantedBy=default.target

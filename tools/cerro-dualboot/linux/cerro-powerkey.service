@@ -1,0 +1,13 @@
+[Unit]
+Description=Cerro power key (short=blank, long 3s=power menu)
+After=display-manager.service
+Wants=display-manager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/cerro-powerkey.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

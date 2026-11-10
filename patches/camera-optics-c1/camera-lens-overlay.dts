@@ -1,0 +1,23 @@
+/dts-v1/;
+/plugin/;
+/* Runtime prototype for THIS unit; supply phandle/OTP checked before load. */
+/ {
+ fragment@0 {
+  target-path = "/soc@0/cci@ac15000/i2c-bus@1";
+  __overlay__ {
+   #address-cells = <1>;
+   #size-cells = <0>;
+   ak7316: lens@c {
+    compatible = "asahi-kasei,ak7316-cerro";
+    reg = <0x0c>;
+    vdd-supply = <344>;
+    asahi-kasei,focus-min = <112>;
+    asahi-kasei,focus-max = <940>;
+   };
+  };
+ };
+ fragment@1 {
+  target-path = "/soc@0/cci@ac15000/i2c-bus@1/camera-id@10";
+  __overlay__ { lens-focus = <&ak7316>; };
+ };
+};

@@ -1,0 +1,33 @@
+--- /tmp/libqmi-1.36.0/src/qmicli/qmicli-nas.c	2025-04-09 11:57:22.000000000 +0800
++++ src/qmicli/qmicli-nas.c	2026-10-21 22:49:02.347336868 +0800
+@@ -2938,6 +2938,30 @@
+     QmiNasNetworkSelectionPreference                net_preference = 0;
+     guint16                                         mcc = 0;
+     guint16                                         mnc = 0;
++    QmiNasVoiceDomainPreference                     voice_domain_preference = 0;
++
++    /* Cerro: allow voice-domain=cs-only|ps-only|cs-preferred|ps-preferred */
++    if (g_str_has_prefix (str, "voice-domain=")) {
++        const gchar *v = str + strlen ("voice-domain=");
++        if (g_str_equal (v, "cs-only"))
++            voice_domain_preference = QMI_NAS_VOICE_DOMAIN_PREFERENCE_CS_ONLY;
++        else if (g_str_equal (v, "ps-only"))
++            voice_domain_preference = QMI_NAS_VOICE_DOMAIN_PREFERENCE_PS_ONLY;
++        else if (g_str_equal (v, "cs-preferred"))
++            voice_domain_preference = QMI_NAS_VOICE_DOMAIN_PREFERENCE_CS_PREFERRED;
++        else if (g_str_equal (v, "ps-preferred"))
++            voice_domain_preference = QMI_NAS_VOICE_DOMAIN_PREFERENCE_PS_PREFERRED;
++        else {
++            g_printerr ("error: unknown voice-domain '%s'\n", v);
++            return NULL;
++        }
++        input = qmi_message_nas_set_system_selection_preference_input_new ();
++        if (!qmi_message_nas_set_system_selection_preference_input_set_change_duration (input, QMI_NAS_CHANGE_DURATION_PERMANENT, &error))
++            goto out;
++        if (!qmi_message_nas_set_system_selection_preference_input_set_voice_domain_preference (input, voice_domain_preference, &error))
++            goto out;
++        goto out;
++    }
+ 
+     if (strchr (str, ',')) {
+         gchar **parts;

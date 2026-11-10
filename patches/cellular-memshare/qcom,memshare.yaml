@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/soc/qcom/qcom,memshare.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm Dynamic Heap Memory Sharing service
+
+maintainers:
+  - Bjorn Andersson <andersson@kernel.org>
+
+description:
+  Qualcomm remote processors can request physically contiguous memory from
+  the application processor through QMI service 0x34. Each child describes a
+  permitted client, its processor, and its maximum allocation size.
+
+properties:
+  compatible:
+    const: qcom,memshare
+
+patternProperties:
+  "^qcom,client_[0-9]+$":
+    type: object
+    additionalProperties: false
+
+    properties:
+      compatible:
+        const: qcom,memshare-peripheral
+
+      label:
+        enum:
+          - modem
+          - adsp
+          - wcnss
+
+      memory-region:
+        maxItems: 1
+        description:
+          Optional shared DMA pool dedicated to this client.
+
+      qcom,allocate-boot-time:
+        type: boolean
+        description:
+          Allocate this client's configured buffer when the driver probes.
+
+      qcom,allocate-on-request:
+        type: boolean
+        description:
+          Allocate this client's configured buffer on its first QMI request.
+
+      qcom,client-id:
+        $ref: /schemas/types.yaml#/definitions/uint32
+        description:
+          Dynamic Heap Memory Sharing protocol client identifier.
+
+      qcom,guard-band:
+        type: boolean
+        description:
+          Reserve one additional page beyond the advertised client buffer.
+
+      qcom,peripheral-size:
+        $ref: /schemas/types.yaml#/definitions/uint32
+        description:
+          Maximum number of bytes exposed to this client.
+
+      qcom,shared:
+        type: boolean
+        description:
+          Keep HLOS access while granting the remote processor access.
+
+    required:
+      - compatible
+      - label
+      - qcom,client-id
+      - qcom,peripheral-size
+
+required:
+  - compatible
+
+additionalProperties: false
+
+examples:
+  - |
+    soc {
+        #address-cells = <2>;
+        #size-cells = <2>;
+
+        qcom,memshare {
+            compatible = "qcom,memshare";
+
+            qcom,client_3 {
+                compatible = "qcom,memshare-peripheral";
+                qcom,peripheral-size = <0x00500000>;
+                qcom,client-id = <1>;
+                qcom,allocate-on-request;
+                label = "modem";
+            };
+        };
+    };
+...

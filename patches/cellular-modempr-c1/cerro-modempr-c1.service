@@ -1,0 +1,13 @@
+[Unit]
+Description=Expose verified stock Cerro modem_pr firmware read-only
+After=local-fs.target
+Before=cerro-remoteproc-prepare.service cerro-pdmap-stage.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/cerro-modempr-c1 start
+ExecStop=/usr/local/libexec/cerro-modempr-c1 stop
+TimeoutStartSec=30
+TimeoutStopSec=15
+

@@ -1,0 +1,55 @@
+diff --git a/arch/arm64/boot/dts/qcom/sm8650-nubia-cerro.dts b/arch/arm64/boot/dts/qcom/sm8650-nubia-cerro.dts
+index 289262171..ed72a0681 100644
+--- a/arch/arm64/boot/dts/qcom/sm8650-nubia-cerro.dts
++++ b/arch/arm64/boot/dts/qcom/sm8650-nubia-cerro.dts
+@@ -120,6 +120,13 @@ pmic_glink_ss_in: endpoint {
+ 						remote-endpoint = <&usb_dp_qmpphy_out>;
+ 					};
+ 				};
++
++				port@2 {
++					reg = <2>;
++					pmic_glink_sbu: endpoint {
++						remote-endpoint = <&wcd_usbss_sbu_mux>;
++					};
++				};
+ 			};
+ 		};
+ 	};
+@@ -1391,8 +1398,34 @@ &usb_dp_qmpphy_out {
+ 	remote-endpoint = <&pmic_glink_ss_in>;
+ };
+ 
+-/* USB-C DP alt-mode: SoC DP controller (was disabled). Mux/SBU (wcd_usbss /
+- * nubia,usb_switch_dp) is a follow-up if HPD still silent. */
++/* Aurora Cerro routes DP AUX through WCD939x USBSS at a8c000:0e/L15B.
++ * No reset GPIO is described for this board (do not copy QRD GPIO152).
++ * The headset graph is a separate audio experiment; this is DP SBU only.
++ */
++&i2c3 {
++	status = "okay";
++
++	wcd_usbss: typec-mux@e {
++		compatible = "qcom,wcd9395-usbss", "qcom,wcd9390-usbss";
++		reg = <0xe>;
++		vdd-supply = <&vreg_l15b_1p8>;
++		mode-switch;
++		orientation-switch;
++
++		ports {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			port@0 {
++				reg = <0>;
++				wcd_usbss_sbu_mux: endpoint {
++					remote-endpoint = <&pmic_glink_sbu>;
++				};
++			};
++		};
++	};
++};
++
+ &mdss_dp0 {
+ 	status = "okay";
+ };

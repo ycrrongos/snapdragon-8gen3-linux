@@ -1,0 +1,59 @@
+--- a/src/mm-shared-qmi.c
++++ b/src/mm-shared-qmi.c
+@@ -3281,7 +3281,6 @@
+     QmiClientUim *client_uim;
+     GPtrArray    *sim_slots;
+     guint         active_slot_number;
+-    guint         active_logical_id;
+ } LoadSimSlotsContext;
+ 
+ static void
+@@ -3318,6 +3317,30 @@
+     if (primary_sim_slot)
+         *primary_sim_slot = ctx->active_slot_number;
+     return TRUE;
++}
++
++/* Default QMI clients use the primary logical subscription.  More than one
++ * physical slot may be ACTIVE on DSDS devices; array order must not select
++ * the last active (secondary) SIM as the modem's primary SIM. */
++static guint
++find_primary_active_slot (GArray *physical_slots)
++{
++    guint primary_slot = 0;
++    guint primary_logical_id = G_MAXUINT;
++    guint i;
++
++    for (i = 0; i < physical_slots->len; i++) {
++        QmiPhysicalSlotStatusSlot *slot;
++
++        slot = &g_array_index (physical_slots, QmiPhysicalSlotStatusSlot, i);
++        if (slot->physical_slot_status != QMI_UIM_SLOT_STATE_ACTIVE || !slot->logical_slot)
++            continue;
++        if (slot->logical_slot < primary_logical_id) {
++            primary_logical_id = slot->logical_slot;
++            primary_slot = i + 1;
++        }
++    }
++    return primary_slot;
+ }
+ 
+ static void
+@@ -3373,6 +3396,8 @@
+         return;
+     }
+ 
++    ctx->active_slot_number = find_primary_active_slot (physical_slots);
++
+     ctx->sim_slots = g_ptr_array_new_full (physical_slots->len, (GDestroyNotify) sim_slot_free);
+ 
+     for (i = 0; i < physical_slots->len; i++) {
+@@ -3389,8 +3414,6 @@
+         slot_status = &g_array_index (physical_slots, QmiPhysicalSlotStatusSlot, i);
+         if (slot_status->physical_slot_status == QMI_UIM_SLOT_STATE_ACTIVE) {
+             sim_active = TRUE;
+-            ctx->active_logical_id = slot_status->logical_slot;
+-            ctx->active_slot_number = i + 1;
+         }
+ 
+         if (!slot_status->iccid->len) {

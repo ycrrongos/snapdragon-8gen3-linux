@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=蜂窝网络控制
+GenericName=Cellular Network Control
+Comment=ModemManager 蜂窝网络控制（Cerro / Z60U）
+Exec=cerro-cellular-gui
+Icon=network-cellular-connected
+Terminal=false
+Categories=Network;Settings;GTK;
+Keywords=cellular;modem;5G;LTE;APN;

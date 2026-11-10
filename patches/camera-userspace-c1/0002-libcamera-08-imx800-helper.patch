@@ -1,0 +1,23 @@
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -529,6 +529,20 @@
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("hm1246", CameraSensorHelperHm1246)
+ 
++/* Cerro IMX800: native code=16384-16384/gain, stock limit15360=16x.
++ * Black level64/10bits was measured on raw frames; store at16bit scale.
++ */
++class CameraSensorHelperImx800Cerro : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperImx800Cerro()
++	{
++		blackLevel_ = 4096;
++		gain_ = AnalogueGainLinear{ 0, 16384, -1, 16384 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("imx800-cerro", CameraSensorHelperImx800Cerro)
++
+ class CameraSensorHelperImx214 : public CameraSensorHelper
+ {
+ public:

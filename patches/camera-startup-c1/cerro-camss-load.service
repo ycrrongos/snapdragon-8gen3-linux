@@ -1,0 +1,14 @@
+[Unit]
+Description=Prepare Cerro camera suppliers and complete graph before CAMSS
+After=local-fs.target systemd-udev-trigger.service
+RequiresMountsFor=/var/lib/cerro-camera
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/cerro-camera/start-camera.py
+TimeoutStartSec=45
+
+[Install]
+WantedBy=multi-user.target

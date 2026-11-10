@@ -1,0 +1,13 @@
+# Cerro recovery fstab (partition names; slotselect applied by recovery)
+#<src>                        <mnt>     <type>  <mnt_flags>                          <fs_mgr>
+
+/dev/block/by-name/boot       /boot     emmc    defaults                             defaults
+/dev/block/by-name/init_boot  /init_boot emmc   defaults                             defaults
+/dev/block/by-name/vendor_boot /vendor_boot emmc defaults                          defaults
+/dev/block/by-name/dtbo       /dtbo     emmc    defaults                             defaults
+/dev/block/by-name/recovery   /recovery emmc    defaults                             defaults
+/dev/block/by-name/misc       /misc     emmc    defaults                             defaults
+/dev/block/by-name/metadata   /metadata f2fs    noatime,nosuid,nodev,discard         wait,check,formattable
+/dev/block/by-name/userdata   /data     f2fs    noatime,nosuid,nodev,discard         wait,check,formattable,fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized+wrappedkey_v0,keydirectory=/metadata/vold/metadata_encryption,metadata_encryption=aes-256-xts:wrappedkey_v0
+/dev/block/by-name/super      /super    emmc    defaults                             defaults
+/dev/block/by-name/cerro_linux /cerro_linux ext4 noatime,nosuid,nodev,discard      wait,check,formattable

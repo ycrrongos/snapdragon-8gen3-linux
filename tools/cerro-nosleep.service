@@ -1,0 +1,12 @@
+[Unit]
+Description=Cerro bring-up: block KDE/system sleep and keep USB ACM alive
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/systemd-inhibit --what=idle:sleep --who=cerro-bringup --why=keep-USB-ACM-and-install-jobs-alive --mode=block /bin/sleep infinity
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

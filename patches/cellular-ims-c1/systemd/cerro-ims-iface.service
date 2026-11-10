@@ -1,0 +1,12 @@
+[Unit]
+Description=Cerro bring up IMS qmapmux iface after ModemManager
+After=ModemManager.service NetworkManager.service 81voltd.service cerro-qcom-imsd.service
+Wants=ModemManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'for i in $(seq 1 60); do mmcli -m any >/dev/null 2>&1 && break; sleep 1; done; sleep 5; /usr/local/sbin/cerro-ims-iface.sh'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

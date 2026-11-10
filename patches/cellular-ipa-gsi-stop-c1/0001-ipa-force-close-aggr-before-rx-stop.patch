@@ -1,0 +1,43 @@
+diff --git a/drivers/net/ipa/gsi.c b/drivers/net/ipa/gsi.c
+index 624649484..d4dd1c686 100644
+--- a/drivers/net/ipa/gsi.c
++++ b/drivers/net/ipa/gsi.c
+@@ -90,7 +90,7 @@
+ 
+ #define GSI_CMD_TIMEOUT			50	/* milliseconds */
+ 
+-#define GSI_CHANNEL_STOP_RETRIES	10
++#define GSI_CHANNEL_STOP_RETRIES	50	/* cerro: RX STOP_IN_PROC needs longer */
+ #define GSI_CHANNEL_MODEM_HALT_RETRIES	10
+ #define GSI_CHANNEL_MODEM_FLOW_RETRIES	5	/* disable flow control only */
+ 
+diff --git a/drivers/net/ipa/ipa_endpoint.c b/drivers/net/ipa/ipa_endpoint.c
+index 0bd9b9fbb..f3c175735 100644
+--- a/drivers/net/ipa/ipa_endpoint.c
++++ b/drivers/net/ipa/ipa_endpoint.c
+@@ -1852,6 +1852,15 @@ void ipa_endpoint_disable_one(struct ipa_endpoint *endpoint)
+ 	if (!endpoint->toward_ipa) {
+ 		ipa_endpoint_replenish_disable(endpoint);
+ 		ipa_interrupt_suspend_disable(ipa->interrupt, endpoint_id);
++		/* IPA v4+ uses GSI STOP for suspend/disable.  An open
++		 * aggregation frame can leave the RX channel stuck in
++		 * STOP_IN_PROC (seen on cerro/sm8650 as GSI command 2
++		 * timeouts on AP_MODEM_RX), which then crashes the modem
++		 * IPA HAL.  Force-close before STOP.
++		 */
++		if (endpoint->config.aggregation &&
++		    ipa_endpoint_aggr_active(endpoint))
++			ipa_endpoint_force_close(endpoint);
+ 	}
+ 
+ 	/* Note that if stop fails, the channel's state is not well-defined */
+@@ -1873,6 +1882,9 @@ void ipa_endpoint_suspend_one(struct ipa_endpoint *endpoint)
+ 	if (!endpoint->toward_ipa) {
+ 		ipa_endpoint_replenish_disable(endpoint);
+ 		(void)ipa_endpoint_program_suspend(endpoint, true);
++		if (endpoint->config.aggregation &&
++		    ipa_endpoint_aggr_active(endpoint))
++			ipa_endpoint_force_close(endpoint);
+ 	}
+ 
+ 	ret = gsi_channel_suspend(gsi, endpoint->channel_id);

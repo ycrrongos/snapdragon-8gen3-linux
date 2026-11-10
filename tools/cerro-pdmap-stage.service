@@ -1,0 +1,12 @@
+[Unit]
+Description=Stage stock Cerro modem protection-domain map
+After=local-fs.target
+Before=pd-mapper.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cerro-pdmap-stage.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

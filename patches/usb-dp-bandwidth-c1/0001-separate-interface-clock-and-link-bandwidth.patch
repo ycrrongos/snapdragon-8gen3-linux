@@ -1,0 +1,64 @@
+From 7b732bdca46c058316ec41e726da3f77ab1e9eab Mon Sep 17 00:00:00 2001
+From: AviumSmartisanOS <asos@localhost>
+Date: Tue, 10 Nov 2026 00:36:00 +0800
+Subject: [PATCH] drm/msm/dp: validate link bandwidth independently of the wide
+ pixel bus
+
+The HDMI adapter negotiates two HBR2 lanes, but mode_valid accepted 537.3 MHz RGB by halving the pixel clock for wide bus. The actual 18 bpp stream exceeds its 8.64 Gbit/s payload budget and produces no signal; 1080p60 works on the same link.
+
+Only YUV420 can halve transmitted pixel data. Keep a separate interface clock for wide-bus limits, reject unsupported 420-only modes, and evaluate wide-bus support for the candidate rather than the active format.
+
+Actual validation functions: 3 failing cases before, all 10 cases pass after; dp_display.o compiles. Phone validation pending.
+---
+ drivers/gpu/drm/msm/dp/dp_display.c | 17 ++++++++++++-----
+ 1 file changed, 12 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/dp/dp_display.c b/drivers/gpu/drm/msm/dp/dp_display.c
+index dc6f33809..6f8f36713 100644
+--- a/drivers/gpu/drm/msm/dp/dp_display.c
++++ b/drivers/gpu/drm/msm/dp/dp_display.c
+@@ -696,8 +696,10 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	struct msm_dp_display_private *msm_dp_display;
+ 	struct msm_dp_link_info *link_info;
+ 	u32 mode_rate_khz = 0, supported_rate_khz = 0, mode_bpp = 0;
++	u32 link_pclk_khz = mode->clock;
+ 	struct msm_dp *dp;
+ 	int mode_pclk_khz = mode->clock;
++	bool is_yuv_420;
+ 
+ 	dp = to_dp_bridge(bridge)->msm_dp_display;
+ 
+@@ -709,10 +711,15 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
+ 	link_info = &msm_dp_display->panel->link_info;
+ 
+-	if ((drm_mode_is_420_only(&dp->connector->display_info, mode) &&
+-	     msm_dp_display->panel->vsc_sdp_supported) ||
+-	     msm_dp_wide_bus_available(dp))
++	is_yuv_420 = drm_mode_is_420_only(&dp->connector->display_info, mode);
++	if (is_yuv_420 && !msm_dp_display->panel->vsc_sdp_supported)
++		return MODE_NO_420;
++
++	/* Wide bus halves the interface clock, not the DP link payload. */
++	if (is_yuv_420 || msm_dp_display->wide_bus_supported)
+ 		mode_pclk_khz /= 2;
++	if (is_yuv_420)
++		link_pclk_khz /= 2;
+ 
+ 	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)
+ 		return MODE_CLOCK_HIGH;
+@@ -722,9 +729,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 		mode_bpp = default_bpp;
+ 
+ 	mode_bpp = msm_dp_panel_get_mode_bpp(msm_dp_display->panel,
+-			mode_bpp, mode_pclk_khz);
++			mode_bpp, link_pclk_khz);
+ 
+-	mode_rate_khz = mode_pclk_khz * mode_bpp;
++	mode_rate_khz = link_pclk_khz * mode_bpp;
+ 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
+ 
+ 	if (mode_rate_khz > supported_rate_khz)
+-- 
+2.56.0
+

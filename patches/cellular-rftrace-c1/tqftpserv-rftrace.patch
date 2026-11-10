@@ -1,0 +1,49 @@
+diff --git a/translate.c b/translate.c
+index de3baba..c98b3be 100644
+--- a/translate.c
++++ b/translate.c
+@@ -30,6 +30,9 @@
+ #define TQFTPSERV_TMP	"/data/vendor/tmp/tqftpserv"
+ #endif
+ 
++static unsigned int trace_lines;
++#define TRACE_LINE_LIMIT 4096U
++
+ static int open_maybe_compressed(const char *path);
+ 
+ static void read_fw_path_from_sysfs(char *outbuffer, size_t bufsize)
+@@ -187,14 +190,29 @@ static int translate_readwrite(const char *file, int flags)
+  */
+ int translate_open(const char *path, int flags)
+ {
++	int saved_errno;
++	int fd;
++
++	errno = 0;
+ 	if (!strncmp(path, READONLY_PATH, strlen(READONLY_PATH)))
+-		return translate_readonly(path + strlen(READONLY_PATH));
++		fd = translate_readonly(path + strlen(READONLY_PATH));
+ 	else if (!strncmp(path, READWRITE_PATH, strlen(READWRITE_PATH)))
+-		return translate_readwrite(path + strlen(READWRITE_PATH), flags);
++		fd = translate_readwrite(path + strlen(READWRITE_PATH), flags);
++	else {
++		fprintf(stderr, "invalid path %s, rejecting\n", path);
++		errno = ENOENT;
++		fd = -1;
++	}
+ 
+-	fprintf(stderr, "invalid path %s, rejecting\n", path);
+-	errno = ENOENT;
+-	return -1;
++	saved_errno = fd < 0 ? errno : 0;
++	if (trace_lines < TRACE_LINE_LIMIT) {
++		fprintf(stderr,
++			"[CERRO_TQFTP_TRACE] flags=0x%x path=%s result=%d errno=%d\n",
++			flags, path, fd >= 0 ? 0 : -1, saved_errno);
++		trace_lines++;
++	}
++	errno = saved_errno;
++	return fd;
+ }
+ 
+ /* linux-firmware uses .zst as file extension */

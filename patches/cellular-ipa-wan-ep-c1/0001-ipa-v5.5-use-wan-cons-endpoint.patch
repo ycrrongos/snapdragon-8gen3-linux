@@ -1,0 +1,19 @@
+diff --git a/drivers/net/ipa/data/ipa_data-v5.5.c b/drivers/net/ipa/data/ipa_data-v5.5.c
+--- a/drivers/net/ipa/data/ipa_data-v5.5.c
++++ b/drivers/net/ipa/data/ipa_data-v5.5.c
+@@
+ 	[IPA_ENDPOINT_AP_MODEM_RX] = {
+ 		.ee_id		= GSI_EE_AP,
+ 		.channel_id	= 1,
+-		.endpoint_id	= 23,
++		/* Aurora IPA v5.5 APPS_WAN_CONS is EP 24 / GSI ch 1.
++		 * EP 23 is WAN_COAL; v5.0's 23 was copied into mainline v5.5.
++		 */
++		.endpoint_id	= 24,
+@@
+ 	[IPA_ENDPOINT_MODEM_AP_RX] = {
+ 		.ee_id		= GSI_EE_MODEM,
+ 		.channel_id	= 7,
+-		.endpoint_id	= 21,
++		/* Aurora IPA v5.5 Q6_WAN_CONS is EP 22 / GSI ch 7 (v5.0 was 21). */
++		.endpoint_id	= 22,

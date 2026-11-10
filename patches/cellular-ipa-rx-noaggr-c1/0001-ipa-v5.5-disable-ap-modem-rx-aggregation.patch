@@ -1,0 +1,19 @@
+diff --git a/drivers/net/ipa/data/ipa_data-v5.5.c b/drivers/net/ipa/data/ipa_data-v5.5.c
+index 741ae21d9..cca4a2ef8 100644
+--- a/drivers/net/ipa/data/ipa_data-v5.5.c
++++ b/drivers/net/ipa/data/ipa_data-v5.5.c
+@@ -147,11 +147,10 @@ static const struct ipa_gsi_endpoint_data ipa_gsi_endpoint_data[] = {
+ 				.resource_group	= IPA_RSRC_GROUP_DST_DL,
+ 				.checksum       = true,
+ 				.qmap		= true,
+-				.aggregation	= true,
++				/* cerro diag: disable aggr — if RX starts, hang was aggr */
++				.aggregation	= false,
+ 				.rx = {
+-					.buffer_size	= 8192,
+-					.aggr_time_limit = 500,
+-					.aggr_close_eof	= true,
++					.buffer_size	= 2048,
+ 				},
+ 			},
+ 		},

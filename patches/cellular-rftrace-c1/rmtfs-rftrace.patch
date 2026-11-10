@@ -1,0 +1,68 @@
+diff --git a/rmtfs.c b/rmtfs.c
+index 7c11822..a9c8b6b 100644
+--- a/rmtfs.c
++++ b/rmtfs.c
+@@ -28,16 +28,23 @@ static struct rmtfs_mem *rmem;
+ static sig_atomic_t sig_int_count;
+ 
+ static bool dbgprintf_enabled;
++static unsigned int dbgprintf_lines;
++#define DBGPRINTF_LINE_LIMIT 65536U
++
+ static void dbgprintf(const char *fmt, ...)
+ {
+ 	va_list ap;
+ 
+ 	if (!dbgprintf_enabled)
+ 		return;
++	if (dbgprintf_lines >= DBGPRINTF_LINE_LIMIT)
++		return;
++	dbgprintf_lines++;
+ 
+ 	va_start(ap, fmt);
+ 	vprintf(fmt, ap);
+ 	va_end(ap);
++	fflush(stdout);
+ }
+ 
+ static void qmi_result_error(struct rmtfs_qmi_result *result, unsigned error)
+@@ -154,14 +161,14 @@ static void rmtfs_iovec(int sock, struct qrtr_packet *pkt)
+ 	struct rmtfs_iovec_resp resp = {};
+ 	struct rmtfs_iovec_req req = {};
+ 	DEFINE_QRTR_PACKET(resp_buf, 256);
+-	struct rmtfd *rmtfd;
++	struct rmtfd *rmtfd = NULL;
+ 	uint32_t caller_id = 0;
+ 	size_t num_entries = 0;
+ 	off_t sector_base;
+-	uint8_t is_write;
++	uint8_t is_write = 0;
+ 	off_t phys_base;
+ 	uint8_t force = 0;
+-	unsigned txn;
++	unsigned txn = 0;
+ 	off_t offset;
+ 	ssize_t len;
+ 	ssize_t n;
+@@ -316,7 +323,7 @@ static void rmtfs_get_dev_error(int sock, struct qrtr_packet *pkt)
+ 	}
+ 
+ 	rmtfd = storage_get(pkt->node, req.caller_id);
+-	if (rmtfd) {
++	if (!rmtfd) {
+ 		qmi_result_error(&resp.result, QMI_RMTFS_ERR_INTERNAL);
+ 		goto respond;
+ 	}
+diff --git a/sharedmem.c b/sharedmem.c
+index 222fb3b..d818afb 100644
+--- a/sharedmem.c
++++ b/sharedmem.c
+@@ -7,7 +7,7 @@
+ #ifndef ANDROID
+ #include <libudev.h>
+ #else
+-#include <sys/endian.h>
++#include <endian.h>
+ #endif
+ #include <stdbool.h>
+ #include <stdio.h>

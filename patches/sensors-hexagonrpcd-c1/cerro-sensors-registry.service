@@ -1,0 +1,11 @@
+[Unit]
+Description=Sync Android sensor registry into HexagonFS
+After=mnt-vendor-persist.mount
+Before=hexagonrpcd.service
+Requires=mnt-vendor-persist.mount
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c "mkdir -p /usr/share/qcom/sensors/registry && rsync -a --delete /mnt/vendor/persist/sensors/registry/registry/ /usr/share/qcom/sensors/registry/"
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

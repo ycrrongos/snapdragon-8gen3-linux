@@ -1,0 +1,14 @@
+[Unit]
+Description=Cerro modem: wait for UIM and initialize both present USIM sessions
+Requires=rmtfs.service cerro-cellular-meta.service
+After=rmtfs.service tqftpserv.service pd-mapper.service cerro-cellular-meta.service
+Before=ModemManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cerro-cellular-prepare.sh
+TimeoutStartSec=420
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

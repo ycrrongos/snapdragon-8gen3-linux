@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=相机
+Comment=拍照、对焦和数字变焦
+Exec=/usr/local/bin/cerro-camera
+Icon=camera-photo
+Terminal=false
+Categories=Graphics;Photography;
+StartupNotify=true
+StartupWMClass=cerro-camera

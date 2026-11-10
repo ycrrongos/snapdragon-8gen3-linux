@@ -1,0 +1,29 @@
+diff --git a/drivers/soc/qcom/pmic_glink.c b/drivers/soc/qcom/pmic_glink.c
+index 304226157..5004faa25 100644
+--- a/drivers/soc/qcom/pmic_glink.c
++++ b/drivers/soc/qcom/pmic_glink.c
+@@ -281,7 +281,8 @@ static void pmic_glink_rpmsg_remove(struct rpmsg_device *rpdev)
+ }
+ 
+ static const struct rpmsg_device_id pmic_glink_rpmsg_id_match[] = {
+-	{.name = "PMIC_RTR_ADSP_APPS", .driver_data = true },
++	/* driver_data=false: do not require charger_pd PDR (see pmic_glink_adsp_data) */
++	{.name = "PMIC_RTR_ADSP_APPS", .driver_data = false },
+ 	{.name = "PMIC_RTR_SOCCP_APPS", .driver_data = false },
+ 	{}
+ };
+@@ -393,8 +394,12 @@ static const struct pmic_glink_data pmic_glink_adsp_data = {
+ 	.client_mask = BIT(PMIC_GLINK_CLIENT_BATT) |
+ 		       BIT(PMIC_GLINK_CLIENT_ALTMODE) |
+ 		       BIT(PMIC_GLINK_CLIENT_UCSI),
+-	.charger_pdr_service_name = "tms/servreg",
+-	.charger_pdr_service_path = "msm/adsp/charger_pd",
++	/*
++	 * Upstream waits on msm/adsp/charger_pd via tms/servreg. Cerro's ADSP
++	 * servreg only lists audio/root/sensor — PDR lookup fails with -ENOENT
++	 * and qcom_battmgr stays EAGAIN forever. Drop the PDR gate; RPMSG
++	 * PMIC_RTR_ADSP_APPS presence is enough (same as SOCCP path).
++	 */
+ };
+ 
+ static const struct pmic_glink_data pmic_glink_soccp_data = {

@@ -1,0 +1,11 @@
+{
+  "upstream_url": "https://github.com/torvalds/linux.git",
+  "upstream_ref": "v7.2-rc5",
+  "upstream_commit": "f5098b6bae761e346ebcd9da7f95622c04733cff",
+  "tested_source_commit": "af975f9ca6fe313f36514ab3012b23b0456c08f4",
+  "patch_sha256": "29aaaec4feb0560fe1c7b3121c2a97d2388aa0bfb652a95d99a6440effde200a",
+  "config_sha256": "a831ddbf4e4057e5af2740c0870b661e812ee9c8547bd07cec157de1b9628d19",
+  "architecture": "arm64",
+  "compiler_observed": "clang 23.1.4",
+  "initramfs": "empty for source compilation; phone boot requires separately supplied, locally verified initramfs and boot reference"
+}

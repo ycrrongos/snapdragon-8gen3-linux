@@ -1,0 +1,17 @@
+[Unit]
+Description=Cerro: mark A/B slot successful after login screen (SDDM)
+# ABL counts unsuccessful boots on slot B; normal Linux reboot must not exhaust retries.
+# Fire once the greeter is up — not only after a user session.
+After=sddm.service
+Wants=sddm.service
+# Partitions must exist (same constraint as debian-native qbootctl drop-in)
+After=dev-disk-by\x2dpartlabel-boot_a.device dev-disk-by\x2dpartlabel-boot_b.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cerro-qboot-mark-success.sh
+TimeoutStartSec=180
+
+[Install]
+WantedBy=graphical.target

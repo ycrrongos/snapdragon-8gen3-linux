@@ -1,0 +1,19 @@
+[Unit]
+Description=Cerro battery manager (pmic-glink + qcom_battmgr)
+# Early: greeter/PowerDevil/UPower need psy. After=graphical was 凑合.
+After=local-fs.target cerro-remoteproc-prepare.service
+Before=display-manager.service sddm.service upower.service
+Wants=cerro-remoteproc-prepare.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Prefer livetree /pmic-glink (builtin DTB). Only load runtime overlay if absent.
+ExecStart=/bin/sh -c 'if [ ! -d /sys/firmware/devicetree/base/pmic-glink ]; then /usr/sbin/modprobe cerro-pmic-glink-overlay; sleep 1; fi'
+ExecStart=/usr/sbin/modprobe pmic_glink
+ExecStart=/bin/sleep 1
+ExecStart=/usr/sbin/modprobe qcom_battmgr
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

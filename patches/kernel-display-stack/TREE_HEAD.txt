@@ -1,0 +1,1 @@
+270c4b317 disp-p1: keep RM692H0 panel, leave DSI DSC math at spp=1.

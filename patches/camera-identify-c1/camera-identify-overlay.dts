@@ -1,0 +1,51 @@
+/dts-v1/;
+/plugin/;
+/* Live DP6 phandles: CAMCC=230, TLMM=143. Loader verifies before applying. */
+/ {
+ fragment@0 {
+  target-path = "/soc@0/rsc@17a00000";
+  __overlay__ {
+   camera-pm8010m-regulators {
+    compatible = "qcom,pm8010-rpmh-regulators";
+    qcom,pmic-id = "m";
+    qcom,always-wait-for-ack;
+    id_l1m: ldo1 { regulator-name = "cerro-camera-l1m"; regulator-min-microvolt = <1104000>; regulator-max-microvolt = <1104000>; };
+    id_l3m: ldo3 { regulator-name = "cerro-camera-l3m"; regulator-min-microvolt = <2800000>; regulator-max-microvolt = <2800000>; };
+    id_l5m: ldo5 { regulator-name = "cerro-camera-l5m"; regulator-min-microvolt = <1800000>; regulator-max-microvolt = <1800000>; };
+    id_l7m: ldo7 { regulator-name = "cerro-camera-l7m"; regulator-min-microvolt = <2960000>; regulator-max-microvolt = <2960000>; };
+   };
+  };
+ };
+ fragment@1 {
+  target-path = "/soc@0/pinctrl@f100000";
+  __overlay__ {
+   id_mclk1: camera-identify-mclk1-state {
+    pins = "gpio101";
+    function = "cam_mclk";
+    drive-strength = <2>;
+    bias-disable;
+   };
+  };
+ };
+ fragment@2 {
+  target-path = "/soc@0/cci@ac15000/i2c-bus@1";
+  __overlay__ {
+   #address-cells = <1>;
+   #size-cells = <0>;
+   camera-id@10 {
+    compatible = "nubia,cerro-camera-id";
+    reg = <0x10>;
+    af-supply = <&id_l3m>;
+    digital-supply = <&id_l1m>;
+    io-supply = <&id_l5m>;
+    analog-supply = <&id_l7m>;
+    reset-gpios = <143 15 1>;
+    enable-gpios = <143 13 0>;
+    clocks = <230 98>;
+    power-domains = <230 0>;
+    pinctrl-0 = <&id_mclk1>;
+    pinctrl-names = "default";
+   };
+  };
+ };
+};

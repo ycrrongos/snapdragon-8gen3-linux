@@ -1,0 +1,8 @@
+// Cerro 开发设备：允许本机 user 用户直接控制 ModemManager
+// （开关无线电 / 网络模式 / bearer 连接），免去 auth_admin 交互。
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.ModemManager1.") === 0 &&
+        subject.user === "user") {
+        return polkit.Result.YES;
+    }
+});

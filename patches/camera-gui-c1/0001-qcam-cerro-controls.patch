@@ -1,0 +1,354 @@
+--- a/src/apps/qcam/meson.build
++++ b/src/apps/qcam/meson.build
+@@ -15,6 +15,7 @@
+ qcam_enabled = true
+ 
+ qcam_sources = files([
++    'cerro_controls.cpp',
+     'cam_select_dialog.cpp',
+     'format_converter.cpp',
+     'main.cpp',
+--- a/src/apps/qcam/main_window.h
++++ b/src/apps/qcam/main_window.h
+@@ -8,6 +8,7 @@
+ #pragma once
+ 
+ #include <memory>
++#include <array>
+ #include <vector>
+ 
+ #include <libcamera/camera.h>
+@@ -32,6 +33,7 @@
+ #include "viewfinder.h"
+ 
+ class QAction;
++class CerroControls;
+ 
+ class CameraSelectorDialog;
+ class Image;
+@@ -90,6 +92,12 @@
+ 
+ 	/* UI elements */
+ 	QToolBar *toolbar_;
++	std::unique_ptr<CerroControls> cerro_;
++	bool afLock_ = false;
++	std::array<float, 2> colourGains_{1.0f,1.0f}, lockedColourGains_{1.0f,1.0f};
++	float gain_ = 1, lockedGain_ = 1;
++	int exposure_ = 0, lockedExposure_ = 0;
++	bool afVerified_ = false;
+ 	QAction *startStopAction_;
+ 	QPushButton *cameraSelectButton_;
+ 	QAction *saveRaw_;
+--- a/src/apps/qcam/main_window.cpp
++++ b/src/apps/qcam/main_window.cpp
+@@ -6,6 +6,13 @@
+  */
+ 
+ #include "main_window.h"
++#include "cerro_controls.h"
++#include <libcamera/control_ids.h>
++#include <QDir>
++#include <QDateTime>
++#include <QStatusBar>
++#include <QDesktopServices>
++#include <QUrl>
+ 
+ #include <assert.h>
+ #include <iomanip>
+@@ -98,7 +105,7 @@
+ 	 */
+ 	createToolbars();
+ 
+-	title_ = "QCam " + QString::fromStdString(CameraManager::version());
++	title_ = QStringLiteral("相机");
+ 	setWindowTitle(title_);
+ 	connect(&titleTimer_, SIGNAL(timeout()), this, SLOT(updateTitle()));
+ 
+@@ -143,6 +150,42 @@
+ 		return;
+ 	}
+ 
++
++ auto *bottom = new QToolBar(QStringLiteral("拍摄控制"), this);
++ bottom->setMovable(false); addToolBar(Qt::BottomToolBarArea, bottom);
++ cerro_ = std::make_unique<CerroControls>(this, centralWidget(),
++  [this] { return viewfinder_->getCurrentImage(); },
++  [this](bool locked) {
++   if (locked) {
++    lockedColourGains_ = colourGains_; lockedExposure_ = exposure_; lockedGain_ = gain_; afVerified_ = false;
++    qInfo() << "Cerro AF lock snapshot" << exposure_ << gain_ << colourGains_[0] << colourGains_[1];
++   }
++   afLock_ = locked;
++  },
++  [this](const QString &message) {
++   statusBar()->showMessage(message);
++   if (message == QStringLiteral("对焦完成") && qEnvironmentVariableIsSet("CERRO_CAMERA_SMOKE_TEST")) {
++    QTimer::singleShot(250, this, [this] {
++     saveImageAs(); cerro_->setZoom(200); saveImageAs(); cerro_->setZoom(100);
++     QTimer::singleShot(500, this, &MainWindow::quit);
++    });
++   }
++  });
++ bottom->addWidget(cerro_.get());
++ const auto &controls = camera_->controls();
++ if (controls.count(&libcamera::controls::ExposureTime) && controls.count(&libcamera::controls::AnalogueGain))
++  cerro_->configureExposure(controls.at(&libcamera::controls::ExposureTime).min().get<int32_t>(),
++   controls.at(&libcamera::controls::ExposureTime).max().get<int32_t>(),
++   controls.at(&libcamera::controls::AnalogueGain).min().get<float>(),
++   controls.at(&libcamera::controls::AnalogueGain).max().get<float>());
++ if (qEnvironmentVariableIsSet("CERRO_CAMERA_EXPOSURE_TEST")) {
++  for (int phase=0;phase<4;phase++) {
++   QTimer::singleShot(2500+phase*3000,this,[this,phase]{cerro_->exposureTest(phase);});
++   QTimer::singleShot(4500+phase*3000,this,[this]{saveImageAs();});
++  }
++  QTimer::singleShot(15000,this,&MainWindow::quit);
++ }
++
+ 	startStopAction_->setChecked(true);
+ }
+ 
+@@ -170,59 +213,27 @@
+ 
+ int MainWindow::createToolbars()
+ {
+-	QAction *action;
+-
+-	toolbar_ = addToolBar("Main");
+-
+-	/* Disable right click context menu. */
+-	toolbar_->setContextMenuPolicy(Qt::PreventContextMenu);
+-
+-	/* Quit action. */
+-	action = toolbar_->addAction(QIcon::fromTheme("application-exit",
+-						      QIcon(":x-circle.svg")),
+-				     "Quit");
+-	action->setShortcut(QKeySequence::Quit);
+-	connect(action, &QAction::triggered, this, &MainWindow::quit);
+-
+-	/* Camera selector. */
+-	cameraSelectButton_ = new QPushButton;
+-	connect(cameraSelectButton_, &QPushButton::clicked,
+-		this, &MainWindow::switchCamera);
+-
+-	toolbar_->addWidget(cameraSelectButton_);
+-
+-	toolbar_->addSeparator();
+-
+-	/* Start/Stop action. */
+-	iconPlay_ = QIcon::fromTheme("media-playback-start",
+-				     QIcon(":play-circle.svg"));
+-	iconStop_ = QIcon::fromTheme("media-playback-stop",
+-				     QIcon(":stop-circle.svg"));
+-
+-	action = toolbar_->addAction(iconPlay_, "Start Capture");
+-	action->setCheckable(true);
+-	action->setShortcut(Qt::Key_Space);
+-	connect(action, &QAction::toggled, this, &MainWindow::toggleCapture);
+-	startStopAction_ = action;
+-
+-	/* Save As... action. */
+-	action = toolbar_->addAction(QIcon::fromTheme("document-save-as",
+-						      QIcon(":save.svg")),
+-				     "Save As...");
+-	action->setShortcut(QKeySequence::SaveAs);
+-	connect(action, &QAction::triggered, this, &MainWindow::saveImageAs);
+-
+-#ifdef HAVE_TIFF
+-	/* Save Raw action. */
+-	action = toolbar_->addAction(QIcon::fromTheme("camera-photo",
+-						      QIcon(":aperture.svg")),
+-				     "Save Raw");
+-	action->setEnabled(false);
+-	connect(action, &QAction::triggered, this, &MainWindow::captureRaw);
+-	saveRaw_ = action;
+-#endif
+-
+-	return 0;
++ toolbar_ = addToolBar(QStringLiteral("相机"));
++ toolbar_->setMovable(false); toolbar_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
++ toolbar_->setIconSize(QSize(28,28));
++ QAction *exit = toolbar_->addAction(QIcon::fromTheme("application-exit"), QStringLiteral("退出"));
++ connect(exit, &QAction::triggered, this, &MainWindow::quit);
++ cameraSelectButton_ = new QPushButton(QStringLiteral("后置主摄"), this);
++ cameraSelectButton_->setMinimumHeight(44); cameraSelectButton_->hide();
++ connect(cameraSelectButton_, &QPushButton::clicked, this, &MainWindow::switchCamera);
++ if (cm_->cameras().size() > 1) toolbar_->addWidget(cameraSelectButton_);
++ auto *photo = new QPushButton(QIcon::fromTheme("camera-photo"), QStringLiteral("拍照"), this);
++ photo->setMinimumSize(96,48); toolbar_->addWidget(photo);
++ connect(photo, &QPushButton::clicked, this, &MainWindow::saveImageAs);
++ auto *album = toolbar_->addAction(QIcon::fromTheme("folder-pictures"), QStringLiteral("照片"));
++ connect(album, &QAction::triggered, this, [] {
++  QDesktopServices::openUrl(QUrl::fromLocalFile(QStandardPaths::writableLocation(QStandardPaths::PicturesLocation) + QStringLiteral("/相机")));
++ });
++ iconPlay_ = QIcon::fromTheme("media-playback-start");
++ iconStop_ = QIcon::fromTheme("media-playback-stop");
++ startStopAction_ = new QAction(this); startStopAction_->setCheckable(true);
++ connect(startStopAction_, &QAction::toggled, this, &MainWindow::toggleCapture);
++ return 0;
+ }
+ 
+ void MainWindow::quit()
+@@ -242,7 +253,8 @@
+ 	frameRateInterval_.start();
+ 	previousFrames_ = framesCaptured_;
+ 
+-	setWindowTitle(title_ + " : " + QString::number(fps, 'f', 2) + " fps");
++	Q_UNUSED(fps);
++	setWindowTitle(title_);
+ }
+ 
+ /* -----------------------------------------------------------------------------
+@@ -281,7 +293,7 @@
+ 	startStopAction_->setChecked(true);
+ 
+ 	/* Display the current cameraId in the toolbar .*/
+-	cameraSelectButton_->setText(QString::fromStdString(cam->id()));
++	cameraSelectButton_->setText(QStringLiteral("后置主摄"));
+ }
+ 
+ std::shared_ptr<Camera> MainWindow::chooseCamera()
+@@ -323,7 +335,7 @@
+ 	}
+ 
+ 	/* Set the camera switch button with the currently selected Camera id. */
+-	cameraSelectButton_->setText(QString::fromStdString(camera_->id()));
++	cameraSelectButton_->setText(QStringLiteral("后置主摄"));
+ 
+ 	return 0;
+ }
+@@ -547,6 +559,7 @@
+ 	if (!isCapturing_)
+ 		return;
+ 
++	if (cerro_) cerro_->stop();
+ 	viewfinder_->stop();
+ 	if (saveRaw_)
+ 		saveRaw_->setEnabled(false);
+@@ -627,18 +640,20 @@
+ 
+ void MainWindow::saveImageAs()
+ {
+-	QImage image = viewfinder_->getCurrentImage();
+-	QString defaultPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+-
+-	QString filename = QFileDialog::getSaveFileName(this, "Save Image", defaultPath,
+-							"Image Files (*.png *.jpg *.jpeg)");
+-	if (filename.isEmpty())
+-		return;
+-
+-	QImageWriter writer(filename);
+-	writer.setQuality(95);
+-	if (!writer.write(image))
+-		QMessageBox::warning(this, "Failed to save image", writer.errorString());
++ if (cerro_ && cerro_->active()) {
++  statusBar()->showMessage(QStringLiteral("正在对焦，请稍后拍照")); return;
++ }
++ QImage image = cerro_ ? cerro_->photoImage() : viewfinder_->getCurrentImage();
++ if (image.isNull()) { statusBar()->showMessage(QStringLiteral("画面尚未就绪")); return; }
++ QString path = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation) + QStringLiteral("/相机");
++ if (!QDir().mkpath(path)) { statusBar()->showMessage(QStringLiteral("无法创建照片目录")); return; }
++ QString filename = path + "/IMG_" + QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss_zzz") + ".jpg";
++ QImageWriter writer(filename, "jpeg"); writer.setQuality(95);
++ if (!writer.write(image)) {
++  statusBar()->showMessage(QStringLiteral("保存失败：") + writer.errorString()); return;
++ }
++ statusBar()->showMessage(QStringLiteral("已保存：") + filename);
++ qInfo() << "Cerro photo saved" << filename << image.size();
+ }
+ 
+ void MainWindow::captureRaw()
+@@ -706,6 +721,22 @@
+ 		request = doneQueue_.dequeue();
+ 	}
+ 
++
++ const auto &metadata = request->metadata();
++ if (qEnvironmentVariableIsSet("CERRO_CAMERA_EXPOSURE_TEST") && framesCaptured_%15==0)
++  qInfo() << "Cerro exposure metadata" << metadata.get(controls::ExposureTimeMode).value_or(-1)
++   << metadata.get(controls::ExposureTime).value_or(-1) << metadata.get(controls::AnalogueGain).value_or(-1)
++   << metadata.get(controls::ExposureValue).value_or(0);
++ if (auto value = metadata.get(controls::ColourGains)) colourGains_ = {(*value)[0], (*value)[1]};
++ if (auto value = metadata.get(controls::ExposureTime)) exposure_ = *value;
++ if (auto value = metadata.get(controls::AnalogueGain)) gain_ = *value;
++ if (afLock_ && !afVerified_ &&
++     metadata.get(controls::ExposureTimeMode).value_or(-1) == controls::ExposureTimeModeManual &&
++     metadata.get(controls::AnalogueGainMode).value_or(-1) == controls::AnalogueGainModeManual &&
++     metadata.get(controls::AwbEnable).value_or(true) == false) {
++  afVerified_ = true;
++  qInfo() << "Cerro AF manual modes verified" << exposure_ << gain_ << colourGains_[0] << colourGains_[1];
++ }
+ 	/* Process buffers. */
+ 	if (request->buffers().count(vfStream_))
+ 		processViewfinder(request->buffers().at(vfStream_));
+@@ -740,6 +771,7 @@
+ 
+ 	/* Render the frame on the viewfinder. */
+ 	viewfinder_->render(buffer, mappedBuffers_[buffer].get());
++	if (cerro_) cerro_->onFrame();
+ }
+ 
+ void MainWindow::renderComplete(FrameBuffer *buffer)
+@@ -776,5 +808,26 @@
+ 
+ int MainWindow::queueRequest(Request *request)
+ {
++ bool manual = afLock_ || (cerro_ && cerro_->manualExposure());
++ if (cerro_ && camera_->controls().count(&controls::ExposureValue))
++  request->controls().set(controls::ExposureValue, cerro_->exposureEV());
++ if (camera_->controls().count(&controls::ExposureTimeMode))
++  request->controls().set(controls::ExposureTimeMode, manual ? controls::ExposureTimeModeManual : controls::ExposureTimeModeAuto);
++ if (camera_->controls().count(&controls::AnalogueGainMode))
++  request->controls().set(controls::AnalogueGainMode, manual ? controls::AnalogueGainModeManual : controls::AnalogueGainModeAuto);
++ if (camera_->controls().count(&controls::AwbEnable))
++  request->controls().set(controls::AwbEnable, !afLock_);
++ if (manual && !afLock_ && cerro_) {
++  request->controls().set(controls::ExposureTime,cerro_->exposureUs());
++  request->controls().set(controls::AnalogueGain,cerro_->exposureGain());
++ }
++ if (afLock_) {
++  if (lockedExposure_ > 0 && camera_->controls().count(&controls::ExposureTime))
++   request->controls().set(controls::ExposureTime, lockedExposure_);
++  if (camera_->controls().count(&controls::AnalogueGain))
++   request->controls().set(controls::AnalogueGain, lockedGain_);
++  if (camera_->controls().count(&controls::ColourGains))
++   request->controls().set(controls::ColourGains, lockedColourGains_);
++ }
+ 	return camera_->queueRequest(request);
+ }
+--- a/src/apps/qcam/viewfinder_qt.cpp
++++ b/src/apps/qcam/viewfinder_qt.cpp
+@@ -173,7 +173,13 @@
+ 			painter.drawRect(rect);
+ 		}
+ 
+-		painter.drawImage(place_, image_, image_.rect());
++
++  double zoom = std::max(1.0, property("cerroZoom").toDouble());
++  int w = std::max(1, static_cast<int>(image_.width() / zoom));
++  int h = std::max(1, static_cast<int>(image_.height() / zoom));
++  QRect source((image_.width()-w)/2, (image_.height()-h)/2, w, h);
++  painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
++  painter.drawImage(place_, image_, source);
+ 		return;
+ 	}
+ 
+--- a/src/apps/qcam/main.cpp
++++ b/src/apps/qcam/main.cpp
+@@ -59,6 +59,8 @@
+ int main(int argc, char **argv)
+ {
+ 	QApplication app(argc, argv);
++	app.setApplicationName("cerro-camera");
++	app.setApplicationDisplayName(QStringLiteral("相机"));
+ 	int ret;
+ 
+ 	OptionsParser::Options options = parseOptions(argc, argv);
+@@ -83,7 +85,7 @@
+ 	}
+ 
+ 	MainWindow *mainWindow = new MainWindow(cm.get(), options);
+-	mainWindow->show();
++	mainWindow->showMaximized();
+ 	ret = app.exec();
+ 	delete mainWindow;
+ 

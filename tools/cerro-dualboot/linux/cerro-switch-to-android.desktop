@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=切换到 Android
+Name[en]=Switch to Android
+Comment=Reboot into Android (A/B slot A)
+Comment[zh_CN]=切换到 Android 系统并重启（A 槽）
+Exec=/usr/local/bin/cerro-switch-to-android
+Icon=system-reboot
+Terminal=false
+Categories=System;Settings;
+Keywords=android;dualboot;slot;cerro;
+StartupNotify=true

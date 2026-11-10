@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SIM 与短信
+Comment=选择移动数据卡并使用双卡收发短信
+Exec=/usr/local/bin/cerro-cellular
+Icon=network-cellular
+Terminal=false
+Categories=Network;Telephony;
+StartupNotify=true

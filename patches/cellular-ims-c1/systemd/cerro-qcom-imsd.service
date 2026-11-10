@@ -1,0 +1,19 @@
+[Unit]
+Description=Cerro qcom-imsd (OpenIMSD VoLTE IMS settings)
+Documentation=https://www.openimsd.de/
+After=ModemManager.service 81voltd.service
+Wants=81voltd.service
+Requires=ModemManager.service
+
+[Service]
+Type=simple
+Environment=GI_TYPELIB_PATH=/opt/cerro/libqmi-openimsd/lib/aarch64-linux-gnu/girepository-1.0
+Environment=LD_LIBRARY_PATH=/opt/cerro/libqmi-openimsd/lib/aarch64-linux-gnu
+ExecStart=/home/rong/src/qcom-imsd/venv/bin/qcom-imsd -d qrtr://0 -c /home/rong/src/qcom-imsd/imsd.toml -l /var/log/cerro-qcom-imsd.log
+Restart=on-failure
+RestartSec=5
+# Needs QRTR + D-Bus to MM; do not PrivateNetwork.
+PrivateNetwork=no
+
+[Install]
+WantedBy=multi-user.target

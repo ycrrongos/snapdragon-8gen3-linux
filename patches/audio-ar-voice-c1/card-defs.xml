@@ -1,0 +1,94 @@
+<!-- Cerro AGM card-defs: pineapple FEs + non-ALSA voice backends for mainline -->
+<defs>
+<card>
+    <id>100</id>
+    <name>cerrovirtualsndcard</name>
+
+    <pcm-device>
+        <id>106</id>
+        <name>VOICEMMODE1p</name>
+        <pcm_plugin>
+            <so-name>libagm_pcm_plugin.so</so-name>
+        </pcm_plugin>
+        <props>
+            <playback>1</playback>
+            <capture>0</capture>
+            <session_mode>1</session_mode>
+        </props>
+    </pcm-device>
+    <pcm-device>
+        <id>107</id>
+        <name>VOICEMMODE2p</name>
+        <pcm_plugin>
+            <so-name>libagm_pcm_plugin.so</so-name>
+        </pcm_plugin>
+        <props>
+            <playback>1</playback>
+            <capture>0</capture>
+            <session_mode>1</session_mode>
+        </props>
+    </pcm-device>
+    <pcm-device>
+        <id>108</id>
+        <name>VOICEMMODE1c</name>
+        <pcm_plugin>
+            <so-name>libagm_pcm_plugin.so</so-name>
+        </pcm_plugin>
+        <props>
+            <playback>0</playback>
+            <capture>1</capture>
+            <session_mode>1</session_mode>
+        </props>
+    </pcm-device>
+    <pcm-device>
+        <id>109</id>
+        <name>VOICEMMODE2c</name>
+        <pcm_plugin>
+            <so-name>libagm_pcm_plugin.so</so-name>
+        </pcm_plugin>
+        <props>
+            <playback>0</playback>
+            <capture>1</capture>
+            <session_mode>1</session_mode>
+        </props>
+    </pcm-device>
+
+    <!-- Non-ALSA backends (mainline has no CODEC_DMA/MI2S PCM nodes) -->
+    <pcm-device>
+        <id>200</id>
+        <name>CODEC_DMA-LPAIF_RXTX-TX-3</name>
+        <props>
+            <backend>1</backend>
+        </props>
+    </pcm-device>
+    <pcm-device>
+        <id>201</id>
+        <name>MI2S-LPAIF-RX-PRIMARY</name>
+        <props>
+            <backend>1</backend>
+        </props>
+    </pcm-device>
+    <pcm-device>
+        <id>202</id>
+        <name>CODEC_DMA-LPAIF_RXTX-RX-0</name>
+        <props>
+            <backend>1</backend>
+        </props>
+    </pcm-device>
+    <pcm-device>
+        <id>203</id>
+        <name>CODEC_DMA-LPAIF_VA-TX-0</name>
+        <props>
+            <backend>1</backend>
+        </props>
+    </pcm-device>
+
+    <mixer>
+        <id>1</id>
+        <name>agm_mixer</name>
+        <mixer_plugin>
+            <so-name>libagm_mixer_plugin.so</so-name>
+        </mixer_plugin>
+    </mixer>
+</card>
+</defs>

@@ -1,0 +1,95 @@
+/dts-v1/;
+/plugin/;
+/* Providers and OTP limits are patched from live OF/module parameters. */
+/ {
+ fragment@0 {
+  target-path = "/soc@0/rsc@17a00000";
+  __overlay__ {
+   camera-pm8010m-regulators {
+    compatible = "qcom,pm8010-rpmh-regulators";
+    qcom,pmic-id = "m";
+    qcom,always-wait-for-ack;
+    cam_l1m: ldo1 { regulator-name = "cerro-camera-l1m"; regulator-min-microvolt = <1104000>; regulator-max-microvolt = <1104000>; };
+    cam_l3m: ldo3 { regulator-name = "cerro-camera-l3m"; regulator-min-microvolt = <2800000>; regulator-max-microvolt = <2800000>; };
+    cam_l5m: ldo5 { regulator-name = "cerro-camera-l5m"; regulator-min-microvolt = <1800000>; regulator-max-microvolt = <1800000>; };
+    cam_l7m: ldo7 { regulator-name = "cerro-camera-l7m"; regulator-min-microvolt = <2960000>; regulator-max-microvolt = <2960000>; };
+   };
+  };
+ };
+ fragment@1 {
+  target-path = "/soc@0/pinctrl@f100000";
+  __overlay__ {
+   cam_mclk1: cerro-camera-mclk1-state {
+    pins = "gpio101";
+    function = "cam_mclk";
+    drive-strength = <2>;
+    bias-disable;
+   };
+  };
+ };
+ fragment@2 {
+  target-path = "/soc@0/cci@ac15000/i2c-bus@1";
+  __overlay__ {
+   #address-cells = <1>;
+   #size-cells = <0>;
+   lens: lens@c {
+    compatible = "asahi-kasei,ak7316-cerro";
+    reg = <0x0c>;
+    vdd-supply = <&cam_l3m>;
+    asahi-kasei,focus-min = <0xca000005>;
+    asahi-kasei,focus-max = <0xca000006>;
+   };
+   camera@10 {
+    compatible = "sony,imx800";
+    reg = <0x10>;
+    af-supply = <&cam_l3m>;
+    digital-supply = <&cam_l1m>;
+    io-supply = <&cam_l5m>;
+    analog-supply = <&cam_l7m>;
+    reset-gpios = <0xca000002 15 1>;
+    enable-gpios = <0xca000002 13 0>;
+    clocks = <0xca000001 98>;
+    power-domains = <0xca000001 0>;
+    pinctrl-0 = <&cam_mclk1>;
+    pinctrl-names = "default";
+    lens-focus = <&lens>;
+    port {
+     sensor_out: endpoint {
+      bus-type = <1>;
+      data-lanes = <0 1 2>;
+      link-frequencies = /bits/ 64 <998000000 1000000000>;
+      remote-endpoint = <&csiphy1_in>;
+     };
+    };
+   };
+  };
+ };
+ fragment@3 {
+  target-path = "/soc@0/isp@acb6000";
+  __overlay__ {
+   ports {
+    #address-cells = <1>; #size-cells = <0>;
+    port@1 {
+     reg = <1>;
+     csiphy1_in: endpoint {
+      bus-type = <1>; data-lanes = <0 1 2>;
+      remote-endpoint = <&sensor_out>;
+     };
+    };
+   };
+  };
+ };
+ /* Cerro ultrawide uses CCI1/master0. Unused master1 claims main VANA GPIO13. */
+ fragment@4 {
+  target-path = "/soc@0/cci@ac16000";
+  __overlay__ {
+   pinctrl-0 = <0xca000003>;
+   pinctrl-1 = <0xca000004>;
+
+  };
+ };
+ fragment@5 {
+  target-path = "/soc@0/cci@ac16000/i2c-bus@1";
+  __overlay__ { status = "disabled"; };
+ };
+};

@@ -1,0 +1,21 @@
+This project is maintained by ycrrongos with AI-assisted / vibecoding workflows.
+Project-authored code without a more specific notice is provided under GPL-2.0-only;
+per-file SPDX identifiers and existing copyright/license notices take precedence.
+The text is in COPYING. Documentation describes experiments, not device warranties.
+
+Linux: https://github.com/torvalds/linux — GPL-2.0-only with Linux-syscall-note
+where specified. The upstream checkout and its full LICENSES/ tree are fetched
+by tools/prepare-kernel.py, not represented as project commit authorship.
+Port sources retain their original notices; kernel/cerro.patch is the exact port
+delta against the full commit in kernel/source.lock.json, excluding build outputs
+and saved duplicate files.
+
+libcamera: https://libcamera.org — library LGPL-2.1-or-later; tools including qcam
+have their own GPL notices. Patches and additional files preserve those notices.
+No vendor camera binary, phone firmware, calibration or Android partition image
+is distributed. Register tables document the sensor programming used by the native
+driver; exporter and provenance checks are provided with the source.
+
+Other upstream-derived sources keep the notices within their files. A single
+maintainer in this repository's GitHub contributor list does not imply authorship
+of Linux, libcamera, firmware, or other referenced projects.

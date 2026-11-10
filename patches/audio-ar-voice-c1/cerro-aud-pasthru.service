@@ -1,0 +1,15 @@
+[Unit]
+Description=Cerro AudioReach passthru/shmem (after ADSP q6apm-dais)
+# Real dependency: ARGS GPR needs /dev/aud_pasthru_adsp; modules-load is too early.
+After=sound.target
+Wants=sound.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Wait for q6apm-dais (ADSP up), then load cerro shmem + passthru.
+ExecStart=/bin/bash -c 'for i in $(seq 1 120); do lsmod | grep -q q6apm_lpass_dais && break; sleep 1; done; modprobe cerro-audio-shmem; modprobe cerro-aud-pasthru; test -e /dev/aud_pasthru_adsp'
+ExecStop=/bin/bash -c 'rmmod cerro_aud_pasthru cerro_audio_shmem 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target

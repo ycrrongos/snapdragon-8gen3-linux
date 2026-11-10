@@ -1,0 +1,13 @@
+[Unit]
+Description=Cerro screen mirror (MJPEG over USB ECM) server
+After=network.target
+
+[Service]
+User=user
+Environment=CERRO_SCREEN_PORT=8660
+ExecStart=/usr/local/bin/cerro-screen-server
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

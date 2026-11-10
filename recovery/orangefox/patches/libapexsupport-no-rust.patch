@@ -1,0 +1,65 @@
+--- a/system/apex/libs/libapexsupport/Android.bp
++++ b/system/apex/libs/libapexsupport/Android.bp
+@@ -1,38 +1,18 @@
+ package {
+     default_applicable_licenses: ["Android-Apache-2.0"],
+ }
+ 
+-rust_defaults {
+-    name: "libapexsupport.defaults",
+-    crate_name: "apexsupport",
+-    srcs: [
+-        "src/lib.rs",
+-    ],
+-    rustlibs: [
+-        "libapex_manifest_rs",
+-        "libprotobuf",
+-    ],
+-}
+-
+-rust_ffi_static {
+-    name: "libapexsupport.ffi",
+-    defaults: ["libapexsupport.defaults"],
+-}
+-
+-rust_test {
+-    name: "libapexsupport.ffi.tests",
+-    defaults: ["libapexsupport.defaults"],
+-    test_suites: ["general-tests"],
+-}
+-
+ cc_library {
+     name: "libapexsupport",
+     srcs: [
+         "apexsupport.cpp",
++        "apexsupport_stub.cpp",
+     ],
+-    whole_static_libs: [
+-        "libapexsupport.ffi",
+-    ],
+     shared_libs: [
+         "libdl_android",
+         "liblog",
+     ],
+--- /dev/null
++++ b/system/apex/libs/libapexsupport/apexsupport_stub.cpp
+@@ -0,0 +1,24 @@
++/* Stub AApexInfo_* for OrangeFox recovery builds without prebuilts/rust. */
++#include "android/apexsupport.h"
++
++AApexInfoError AApexInfo_create(AApexInfo **info) {
++  if (info) {
++    *info = nullptr;
++  }
++  return AAPEXINFO_NO_APEX;
++}
++
++void AApexInfo_destroy(AApexInfo * /*info*/) {}
++
++const char *AApexInfo_getName(const AApexInfo * /*info*/) {
++  return "";
++}
++
++int64_t AApexInfo_getVersion(const AApexInfo * /*info*/) {
++  return 0;
++}

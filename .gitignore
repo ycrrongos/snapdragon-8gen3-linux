@@ -1,0 +1,101 @@
+# Huge / generated
+/build/
+/pmbootstrap/
+/中兴家族工具箱*/
+/backups/
+nohup.out
+*.o
+*.a
+*.ko
+
+# IDE / local
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+backup_qoder_context.py
+
+# CLO kit release zip & vendored blobs (clone edl + fetch firehose locally)
+/packs/*.zip
+/packs/clo-agent-kit/MANIFEST.txt
+/packs/clo-agent-kit/tools/edl-tools/edl/
+/packs/clo-agent-kit/tools/edl-tools/nubia_sm8650_eng/
+
+# Python / EDL tooling
+tools/edl-tools/venv/
+tools/edl-tools/edl/
+**/__pycache__/
+*.pyc
+
+# Large flash images & backups (keep scripts only)
+tools/edl-tools/pmos-flash/
+tools/edl-tools/nubia_sm8650_eng/
+
+# Patch build outputs (run build.sh locally)
+patches/**/out/*.img
+patches/**/out/*.dtb
+patches/**/out/*.sha256
+
+# Recovery / dualboot flash & build junk (keep recipes / scripts / small configs)
+recovery/**/out/
+recovery/**/prebuilt/Image
+recovery/**/prebuilt/dtb
+recovery/**/prebuilt/*.lz4
+recovery/**/device/**/prebuilt/Image
+recovery/**/device/**/prebuilt/dtb.bin
+recovery/ref/*.img
+tools/cerro-dualboot/**/bin/
+tools/cerro-dualboot/**/obj/
+tools/cerro-dualboot/**/gen/
+tools/cerro-dualboot/**/out/
+tools/cerro-dualboot/**/*.apk
+tools/cerro-dualboot/**/*.apk.idsig
+tools/cerro-dualboot/host/*.zip
+
+# Local one-offs
+uninstall_qoder.sh
+
+# Downstream unpack blobs (keep dts/dtb/dtbo text+small)
+downstream-dt/boot_unpack/kernel
+downstream-dt/boot_unpack/ramdisk
+downstream-dt/vb_unpack/vendor_ramdisk00
+
+# Oversized one-off logs (keep tsv + recent small logs)
+notes/bisect-logs/map-bisect-20260806-165047.log
+notes/bisect-logs/.bank-last-outcome
+notes/bisect-logs/.last-outcome
+notes/bisect-logs/.probe-last-outcome
+notes/bisect-logs/.setup-last
+notes/bisect-logs/*.jpg
+notes/bisect-logs/*.png
+
+# Vendor firmware blobs in notes (keep README / listings)
+notes/firmware-goodix/
+notes/firmware-adsp-sm8650/
+notes/firmware-kiwi/ath12k-WCN7850-hw2.0/
+notes/firmware-kiwi/image/
+notes/firmware-kiwi/wlan-qca_cld/
+notes/firmware-kiwi/bt/
+
+# Local secrets / device dumps
+edl_config.json
+tools/edl-tools/edl_config.json
+**/*credentials*
+**/.env
+GITHUBTOKEN.txt
+
+# Publication and kernel module intermediates
+/logs/
+/out/
+/log.txt
+/*.zip
+*.mod
+*.mod.c
+*.cmd
+Module.symvers
+modules.order
+*.dtbo
+*-overlay.inc
+*-locations.inc
+patches/power-pmic-glink-c1/firmware/
+
+/.publication-private.json

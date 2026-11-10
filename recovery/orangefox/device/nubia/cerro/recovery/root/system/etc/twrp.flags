@@ -1,0 +1,13 @@
+# TWRP backup/mount flags for cerro
+# mount point   fstype   device                         flags
+
+/boot           emmc     /dev/block/by-name/boot        flags=slotselect;display="Boot"
+/init_boot      emmc     /dev/block/by-name/init_boot   flags=slotselect;display="Init Boot"
+/vendor_boot    emmc     /dev/block/by-name/vendor_boot flags=slotselect;display="Vendor Boot"
+/dtbo           emmc     /dev/block/by-name/dtbo        flags=slotselect;display="DTBO"
+/recovery       emmc     /dev/block/by-name/recovery    flags=slotselect;display="Recovery"
+/misc           emmc     /dev/block/by-name/misc        flags=display="Misc"
+/metadata       f2fs     /dev/block/by-name/metadata    flags=display="Metadata"
+/data           f2fs     /dev/block/by-name/userdata    flags=fileencryption=aes-256-xts:aes-256-cts:v2+inlinecrypt_optimized+wrappedkey_v0;keydirectory=/metadata/vold/metadata_encryption;display="Data"
+/super          emmc     /dev/block/by-name/super       flags=display="Super"
+/cerro_linux    ext4     /dev/block/by-name/cerro_linux flags=display="Cerro Linux";fsflags="display=\"Cerro Linux\""

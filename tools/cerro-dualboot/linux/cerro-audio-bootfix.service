@@ -1,0 +1,12 @@
+[Unit]
+Description=Cerro restore PipeWire HiFi after ADSP ready
+After=pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cerro-audio-bootfix
+RemainAfterExit=yes
+
+[Install]
+WantedBy=default.target

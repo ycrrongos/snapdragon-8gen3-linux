@@ -1,0 +1,17 @@
+[Unit]
+Description=Cerro remoteproc drivers before PD mapper and modem startup
+After=local-fs.target systemd-modules-load.service
+Before=pd-mapper.service rmtfs.service cerro-audio.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/sbin/modprobe rmtfs_mem
+ExecStart=/sbin/modprobe qcom-memshare
+ExecStart=/sbin/modprobe qcom_q6v5_pas
+ExecStart=/sbin/modprobe ipa
+ExecStart=/sbin/modprobe qrtr_smd
+ExecStart=/sbin/modprobe rmnet
+
+[Install]
+WantedBy=multi-user.target

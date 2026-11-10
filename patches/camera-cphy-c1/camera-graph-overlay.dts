@@ -1,0 +1,35 @@
+/dts-v1/;
+/plugin/;
+/ {
+ fragment@0 {
+  target-path = "/soc@0/cci@ac15000/i2c-bus@1/camera-id@10";
+  __overlay__ {
+   power-domains = <230 0>;
+   port {
+    imx800_out: endpoint {
+     bus-type = <1>;
+     data-lanes = <0 1 2>;
+     link-frequencies = /bits/ 64 <998000000>;
+     remote-endpoint = <&imx800_in>;
+    };
+   };
+  };
+ };
+ fragment@1 {
+  target-path = "/soc@0/isp@acb6000";
+  __overlay__ {
+   ports {
+    #address-cells = <1>;
+    #size-cells = <0>;
+    port@1 {
+     reg = <1>;
+     imx800_in: endpoint {
+      bus-type = <1>;
+      data-lanes = <0 1 2>;
+      remote-endpoint = <&imx800_out>;
+     };
+    };
+   };
+  };
+ };
+};

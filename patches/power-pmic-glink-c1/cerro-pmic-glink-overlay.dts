@@ -1,0 +1,18 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target-path = "/";
+		__overlay__ {
+			pmic-glink {
+				compatible = "qcom,sm8650-pmic-glink",
+					     "qcom,sm8550-pmic-glink",
+					     "qcom,pmic-glink";
+				#address-cells = <1>;
+				#size-cells = <0>;
+				status = "okay";
+			};
+		};
+	};
+};

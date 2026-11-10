@@ -1,0 +1,13 @@
+[Unit]
+Description=Cerro MM voice call → earpiece/mic audio route
+After=ModemManager.service
+Wants=ModemManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/cerro-mm-voice-watch
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

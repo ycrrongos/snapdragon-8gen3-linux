@@ -1,0 +1,3977 @@
+diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
+index 6f33c4e2f..d956c6233 100644
+--- a/arch/arm64/boot/dts/qcom/Makefile
++++ b/arch/arm64/boot/dts/qcom/Makefile
+@@ -397,6 +397,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sm8650-hdk-display-card.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sm8650-hdk-rear-camera-card.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sm8650-hdk.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sm8650-mtp.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= sm8650-nubia-cerro.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sm8650-qrd.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sm8750-mtp.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sm8750-qrd.dtb
+diff --git a/arch/arm64/boot/dts/qcom/sm8650-nubia-cerro.dts b/arch/arm64/boot/dts/qcom/sm8650-nubia-cerro.dts
+new file mode 100644
+index 000000000..ed72a0681
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sm8650-nubia-cerro.dts
+@@ -0,0 +1,1494 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * Nubia Z60 Ultra (cerro / NX721J) mainline device tree.
++ *
++ * Provenance of the hardware facts:
++ *   - Extracted offline from the stock firmware dump
++ *     (see ../notes/cerro-hardware.md, ../downstream-dt/dts/dtbo_1.dts).
++ *   - Cross-checked against the upstream SM8650 QRD reference board
++ *     (arch/arm64/boot/dts/qcom/sm8650-qrd.dts), which carries the
++ *     *identical* Visionox VTDR6130 panel and Goodix Berlin touch on
++ *     spi4 (reset gpio161 / irq gpio162), UFS and USB wiring. cerro's
++ *     display/touch/storage path is therefore a 1:1 match with the QRD.
++ *
++ * Scope: this is a first bring-up tree (console + storage + USB +
++ * display + touch). Nubia-specific extras that are not needed to boot
++ * pmOS to a display are intentionally omitted and listed at the bottom.
++ *
++ * Copyright (c) 2023, Linaro Limited (QRD reference)
++ * Copyright (c) 2026, Nubia Z60U mainline port
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/regulator/qcom,rpmh-regulator.h>
++#include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
++#include "sm8650.dtsi"
++#include "pm8550.dtsi"
++#include "pm8550b.dtsi"
++#define PMK8550VE_SID 8
++#include "pm8550ve.dtsi"
++#include "pm8550vs.dtsi"
++#include "pmk8550.dtsi"
++#include "pmr735d_a.dtsi"
++
++/* Phone SKU: hwfence is at 0xd4e23000 (not QRD 0xe6440000). */
++/delete-node/ &hwfence_shbuf;
++
++/ {
++	model = "Nubia Z60 Ultra";
++	compatible = "nubia,cerro", "qcom,sm8650";
++	chassis-type = "handset";
++
++	aliases {
++		serial0 = &uart15;
++		serial1 = &uart14;
++	};
++
++	chosen {
++		stdout-path = "serial0:115200n8";
++		/*
++		 * Stock ABL leaves /proc/cmdline empty for our boot.img, so
++		 * boot.img --cmdline is ineffective. Put bring-up args here.
++		 */
++		bootargs = "ignore_loglevel pd_ignore_unused clk_ignore_unused fw_devlink=on deferred_probe_timeout=60 console=tty0 fbcon=font:TER16x32 plymouth.enable=0 systemd.mask=plymouth-start.service systemd.mask=plymouth-quit.service systemd.mask=plymouth-quit-wait.service systemd.mask=plymouth-read-write.service systemd.mask=plymouth-reboot.service systemd.crash_reboot=1 panic=10 cerro_dtb=disp-on-oldsetup";
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		pinctrl-0 = <&volume_up_n>;
++		pinctrl-names = "default";
++
++		key-volume-up {
++			label = "Volume Up";
++			linux,code = <KEY_VOLUMEUP>;
++			gpios = <&pm8550_gpios 6 GPIO_ACTIVE_LOW>;
++			debounce-interval = <15>;
++			linux,can-disable;
++			wakeup-source;
++		};
++	};
++
++	vph_pwr: vph-pwr-regulator {
++		compatible = "regulator-fixed";
++
++		regulator-name = "vph_pwr";
++		regulator-min-microvolt = <3700000>;
++		regulator-max-microvolt = <3700000>;
++
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	/*
++	 * Battery + USB-C policy live on ADSP charger_pd (PMIC_RTR_ADSP_APPS).
++	 * Without this node qcom_battmgr never probes: no capacity, no charge
++	 * notifications. Graph endpoints match SM8650 MTP; orientation gpio is
++	 * left unset until the Cerro CC pin is confirmed.
++	 */
++	pmic-glink {
++		compatible = "qcom,sm8650-pmic-glink",
++			     "qcom,sm8550-pmic-glink",
++			     "qcom,pmic-glink";
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		connector@0 {
++			compatible = "usb-c-connector";
++			reg = <0>;
++			power-role = "dual";
++			data-role = "dual";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					pmic_glink_hs_in: endpoint {
++						remote-endpoint = <&usb_1_dwc3_hs>;
++					};
++				};
++
++				port@1 {
++					reg = <1>;
++					pmic_glink_ss_in: endpoint {
++						remote-endpoint = <&usb_dp_qmpphy_out>;
++					};
++				};
++
++				port@2 {
++					reg = <2>;
++					pmic_glink_sbu: endpoint {
++						remote-endpoint = <&wcd_usbss_sbu_mux>;
++					};
++				};
++			};
++		};
++	};
++
++	/*
++	 * s5fr/s5fu audio: WCD939x headset + 2× AW88261 smart PA (Cerro SKU).
++	 * AOSP/stock: wsa-macro status=disabled; speakers on i2c_hub_3 @34/@35
++	 * (chipid 0x2113). WSA SoundWire path retired after s5fq.
++	 * s5fu: pri MI2S / i2s0 (gpio126–129) → AW88261; tplg from LEMANS-EVK
++	 * (PRIMARY_MI2S_RX). Headset FE in old QRD tplg temporarily displaced.
++	 */
++	sound {
++		compatible = "qcom,sm8650-sndcard", "qcom,sm8450-sndcard";
++		model = "SM8650-CERRO";
++		pinctrl-0 = <&pri_mi2s_active>;
++		pinctrl-names = "default";
++		/*
++		 * s5fw: Audioreach MI2S needs q6prm IBIT vote before APM_CMD_SET_CFG.
++		 * sc8280xp enables this on PRIMARY_MI2S startup (sm8250-style 1.536 MHz).
++		 */
++		clocks = <&q6prmcc LPASS_CLK_ID_PRI_MI2S_IBIT LPASS_CLK_ATTRIBUTE_COUPLE_NO>;
++		clock-names = "pri_mi2s_ibit";
++		audio-routing = "IN1_HPHL", "HPHL_OUT",
++				"IN2_HPHR", "HPHR_OUT",
++				"AMIC1", "MIC BIAS1",
++				"AMIC2", "MIC BIAS2",
++				"AMIC3", "MIC BIAS3",
++				"AMIC4", "MIC BIAS3",
++				"AMIC5", "MIC BIAS4",
++				"TX SWR_INPUT0", "ADC1_OUTPUT",
++				"TX SWR_INPUT1", "ADC2_OUTPUT",
++				"TX SWR_INPUT2", "ADC3_OUTPUT",
++				"TX SWR_INPUT3", "ADC4_OUTPUT";
++
++		/* Speakers: AOSP pri_mi2s / i2s0 → 2× AW88261 (lemans-evk pattern) */
++		aw-playback-dai-link {
++			link-name = "AW Playback";
++
++			cpu {
++				sound-dai = <&q6apmbedai PRIMARY_MI2S_RX>;
++			};
++
++			codec {
++				sound-dai = <&spkr_left>, <&spkr_right>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
++
++		wcd-playback-dai-link {
++			link-name = "WCD Playback";
++
++			cpu {
++				sound-dai = <&q6apmbedai RX_CODEC_DMA_RX_0>;
++			};
++
++			codec {
++				sound-dai = <&wcd939x 0>, <&swr1 0>, <&lpass_rxmacro 0>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
++
++		wcd-capture-dai-link {
++			link-name = "WCD Capture";
++
++			cpu {
++				sound-dai = <&q6apmbedai TX_CODEC_DMA_TX_3>;
++			};
++
++			codec {
++				sound-dai = <&wcd939x 1>, <&swr2 0>, <&lpass_txmacro 0>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
++
++		/*
++		 * Handset mics: stock LPASS DMIC on gpio6/7 and gpio8/9
++		 * (dtbo dmic01/dmic23). va_macro is already bound; without
++		 * this pinctrl the clocks stay unmuxed. Dedicated VA DMA so
++		 * it does not steal WCD Capture's TX_CODEC_DMA_TX_3.
++		 * Topology still has to grow a VA_CODEC_DMA_TX_0 backend
++		 * before this link records; current CERRO tplg only feeds
++		 * MultiMedia2 from TERTIARY_MI2S_TX.
++		 */
++		va-dai-link {
++			link-name = "VA Capture";
++
++			cpu {
++				sound-dai = <&q6apmbedai VA_CODEC_DMA_TX_0>;
++			};
++
++			codec {
++				sound-dai = <&lpass_vamacro 0>;
++			};
++
++			platform {
++				sound-dai = <&q6apm>;
++			};
++		};
++	};
++
++	wcd939x: audio-codec {
++		compatible = "qcom,wcd9395-codec", "qcom,wcd9390-codec";
++
++		pinctrl-0 = <&wcd_default>;
++		pinctrl-names = "default";
++
++		qcom,micbias1-microvolt = <1800000>;
++		qcom,micbias2-microvolt = <1800000>;
++		qcom,micbias3-microvolt = <1800000>;
++		qcom,micbias4-microvolt = <1800000>;
++		qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000 500000 500000 500000 500000>;
++		qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
++		qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
++		qcom,rx-device = <&wcd_rx>;
++		qcom,tx-device = <&wcd_tx>;
++
++		reset-gpios = <&tlmm 107 GPIO_ACTIVE_LOW>;
++
++		vdd-buck-supply = <&vreg_l15b_1p8>;
++		vdd-rxtx-supply = <&vreg_l15b_1p8>;
++		vdd-io-supply = <&vreg_l15b_1p8>;
++		vdd-mic-bias-supply = <&vreg_bob1>;
++
++		#sound-dai-cells = <1>;
++	};
++
++	/*
++	 * Vendor zte-lcd-supply-cerro: GPIO load-switches for panel IO/core
++	 * (display_panel_vddio / display_panel_vddd), boot-on in AOSP.
++	 */
++	display_panel_vddio: display-panel-vddio-regulator {
++		compatible = "regulator-fixed";
++		regulator-name = "display_panel_vddio";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		gpio = <&tlmm 14 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-boot-on;
++	};
++
++	display_panel_vddd: display-panel-vddd-regulator {
++		compatible = "regulator-fixed";
++		regulator-name = "display_panel_vddd";
++		regulator-min-microvolt = <1200000>;
++		regulator-max-microvolt = <1200000>;
++		gpio = <&tlmm 125 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-boot-on;
++	};
++
++	/*
++	 * s5dk / AOSP live (RM692H0 SKU): active touch is goodix,brl-d (9916R).
++	 * AVDD is a GPIO load-switch on TLMM 28 — NOT L14B (L14B stays off on AOSP).
++	 * gt9916S node exists in vendor DT but status=disabled on this panel SKU.
++	 */
++	ts_avdd: ts-avdd-regulator {
++		compatible = "regulator-fixed";
++		regulator-name = "ts_avdd";
++		/* fixed-regulator requires min==max */
++		regulator-min-microvolt = <3000000>;
++		regulator-max-microvolt = <3000000>;
++		gpio = <&tlmm 28 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	/*
++	 * RF bisect: s5dr–s5du PASS (boot). s5du PCIe host probes but no
++	 * link/devices — PERST/wake were on &pcie0; mainline puts them on
++	 * &pcieport0 as reset-gpios/wake-gpios (sm8750-mtp / hamoa).
++	 */
++	wcn7850-pmu {
++		compatible = "qcom,wcn7850-pmu";
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&wlan_en>, <&bt_default>;
++
++		wlan-enable-gpios = <&tlmm 16 GPIO_ACTIVE_HIGH>;
++		bt-enable-gpios = <&tlmm 17 GPIO_ACTIVE_HIGH>;
++		/* s5eh: AOSP cnss qcom,sw-ctrl-gpio / qcom,wlan-sw-ctrl-gpio */
++		sw-ctrl-gpios = <&tlmm 18 GPIO_ACTIVE_HIGH>;
++		wlan-sw-ctrl-gpios = <&tlmm 19 GPIO_ACTIVE_HIGH>;
++
++		vdd-supply = <&vreg_s4i_0p85>;
++		vddio-supply = <&vreg_l15b_1p8>;
++		vddio1p2-supply = <&vreg_l3c_1p2>;
++		vddaon-supply = <&vreg_s2c_0p8>;
++		vdddig-supply = <&vreg_s3c_0p9>;
++		vddrfa1p2-supply = <&vreg_s1c_1p2>;
++		vddrfa1p8-supply = <&vreg_s6c_1p8>;
++
++		clocks = <&rpmhcc RPMH_RF_CLK1>;
++
++		regulators {
++			vreg_pmu_rfa_cmn: ldo0 {
++				regulator-name = "vreg_pmu_rfa_cmn";
++			};
++
++			vreg_pmu_aon_0p59: ldo1 {
++				regulator-name = "vreg_pmu_aon_0p59";
++			};
++
++			vreg_pmu_wlcx_0p8: ldo2 {
++				regulator-name = "vreg_pmu_wlcx_0p8";
++			};
++
++			vreg_pmu_wlmx_0p85: ldo3 {
++				regulator-name = "vreg_pmu_wlmx_0p85";
++			};
++
++			vreg_pmu_btcmx_0p85: ldo4 {
++				regulator-name = "vreg_pmu_btcmx_0p85";
++			};
++
++			vreg_pmu_rfa_0p8: ldo5 {
++				regulator-name = "vreg_pmu_rfa_0p8";
++			};
++
++			vreg_pmu_rfa_1p2: ldo6 {
++				regulator-name = "vreg_pmu_rfa_1p2";
++			};
++
++			vreg_pmu_rfa_1p8: ldo7 {
++				regulator-name = "vreg_pmu_rfa_1p8";
++			};
++
++			vreg_pmu_pcie_0p9: ldo8 {
++				regulator-name = "vreg_pmu_pcie_0p9";
++			};
++
++			vreg_pmu_pcie_1p8: ldo9 {
++				regulator-name = "vreg_pmu_pcie_1p8";
++			};
++		};
++	};
++};
++
++&apps_rsc {
++	regulators-0 {
++		compatible = "qcom,pm8550-rpmh-regulators";
++
++		vdd-bob1-supply = <&vph_pwr>;
++		vdd-bob2-supply = <&vph_pwr>;
++		vdd-l2-l13-l14-supply = <&vreg_bob1>;
++		vdd-l3-supply = <&vreg_s1c_1p2>;
++		vdd-l5-l16-supply = <&vreg_bob1>;
++		vdd-l6-l7-supply = <&vreg_bob1>;
++		vdd-l8-l9-supply = <&vreg_bob1>;
++		vdd-l11-supply = <&vreg_s1c_1p2>;
++		vdd-l12-supply = <&vreg_s6c_1p8>;
++		vdd-l15-supply = <&vreg_s6c_1p8>;
++		vdd-l17-supply = <&vreg_bob2>;
++
++		qcom,pmic-id = "b";
++
++		vreg_bob1: bob1 {
++			regulator-name = "vreg_bob1";
++			regulator-min-microvolt = <3296000>;
++			regulator-max-microvolt = <3960000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_bob2: bob2 {
++			regulator-name = "vreg_bob2";
++			regulator-min-microvolt = <2720000>;
++			regulator-max-microvolt = <3008000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l2b_3p0: ldo2 {
++			regulator-name = "vreg_l2b_3p0";
++			regulator-min-microvolt = <3008000>;
++			regulator-max-microvolt = <3008000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l5b_3p1: ldo5 {
++			regulator-name = "vreg_l5b_3p1";
++			regulator-min-microvolt = <3104000>;
++			regulator-max-microvolt = <3104000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l6b_1p8: ldo6 {
++			regulator-name = "vreg_l6b_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <3008000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l7b_1p8: ldo7 {
++			regulator-name = "vreg_l7b_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <3008000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l8b_1p8: ldo8 {
++			regulator-name = "vreg_l8b_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <3008000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l11b_1p2: ldo11 {
++			regulator-name = "vreg_l11b_1p2";
++			regulator-min-microvolt = <1200000>;
++			regulator-max-microvolt = <1504000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l12b_1p8: ldo12 {
++			regulator-name = "vreg_l12b_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-boot-on;
++			regulator-always-on;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l13b_3p0: ldo13 {
++			regulator-name = "vreg_l13b_3p0";
++			regulator-min-microvolt = <3000000>;
++			regulator-max-microvolt = <3000000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l14b_3p2: ldo14 {
++			regulator-name = "vreg_l14b_3p2";
++			regulator-min-microvolt = <3200000>;
++			regulator-max-microvolt = <3200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			/* s5de: drop always-on so touch can hard power-cycle AVDD */
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l15b_1p8: ldo15 {
++			regulator-name = "vreg_l15b_1p8";
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l16b_2p8: ldo16 {
++			regulator-name = "vreg_l16b_2p8";
++			regulator-min-microvolt = <2800000>;
++			regulator-max-microvolt = <2800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l17b_2p5: ldo17 {
++			regulator-name = "vreg_l17b_2p5";
++			regulator-min-microvolt = <2504000>;
++			regulator-max-microvolt = <2504000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-1 {
++		compatible = "qcom,pm8550vs-rpmh-regulators";
++
++		vdd-l1-supply = <&vreg_s1c_1p2>;
++		vdd-l2-supply = <&vreg_s1c_1p2>;
++		vdd-l3-supply = <&vreg_s1c_1p2>;
++		vdd-s1-supply = <&vph_pwr>;
++		vdd-s2-supply = <&vph_pwr>;
++		vdd-s3-supply = <&vph_pwr>;
++		vdd-s4-supply = <&vph_pwr>;
++		vdd-s5-supply = <&vph_pwr>;
++		vdd-s6-supply = <&vph_pwr>;
++
++		qcom,pmic-id = "c";
++
++		vreg_s1c_1p2: smps1 {
++			regulator-name = "vreg_s1c_1p2";
++			/* s5ea: AOSP cnss vdd-wlan-rfa2 1.316V (was 1.256) */
++			regulator-min-microvolt = <1316000>;
++			regulator-max-microvolt = <1348000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_s2c_0p8: smps2 {
++			regulator-name = "vreg_s2c_0p8";
++			/* s5ea: AOSP cnss vdd-wlan-aon 0.976V (was 0.852) */
++			regulator-min-microvolt = <976000>;
++			regulator-max-microvolt = <1036000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_s3c_0p9: smps3 {
++			regulator-name = "vreg_s3c_0p9";
++			regulator-min-microvolt = <976000>;
++			regulator-max-microvolt = <1064000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_s4c_1p2: smps4 {
++			regulator-name = "vreg_s4c_1p2";
++			regulator-min-microvolt = <1224000>;
++			regulator-max-microvolt = <1280000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_s5c_0p7: smps5 {
++			regulator-name = "vreg_s5c_0p7";
++			regulator-min-microvolt = <752000>;
++			regulator-max-microvolt = <900000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_s6c_1p8: smps6 {
++			regulator-name = "vreg_s6c_1p8";
++			regulator-min-microvolt = <1856000>;
++			regulator-max-microvolt = <2000000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l1c_1p2: ldo1 {
++			regulator-name = "vreg_l1c_1p2";
++			regulator-min-microvolt = <1200000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l3c_1p2: ldo3 {
++			regulator-name = "vreg_l3c_1p2";
++			regulator-min-microvolt = <1200000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-2 {
++		compatible = "qcom,pm8550vs-rpmh-regulators";
++
++		vdd-l1-supply = <&vreg_s3c_0p9>;
++
++		qcom,pmic-id = "d";
++
++		vreg_l1d_0p88: ldo1 {
++			regulator-name = "vreg_l1d_0p88";
++			regulator-min-microvolt = <912000>;
++			regulator-max-microvolt = <920000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-3 {
++		compatible = "qcom,pm8550vs-rpmh-regulators";
++
++		vdd-l3-supply = <&vreg_s3c_0p9>;
++
++		qcom,pmic-id = "e";
++
++		vreg_l3e_0p9: ldo3 {
++			regulator-name = "vreg_l3e_0p9";
++			regulator-min-microvolt = <880000>;
++			regulator-max-microvolt = <920000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-4 {
++		compatible = "qcom,pm8550vs-rpmh-regulators";
++
++		vdd-l1-supply = <&vreg_s3c_0p9>;
++		vdd-l3-supply = <&vreg_s3c_0p9>;
++
++		qcom,pmic-id = "g";
++
++		vreg_l1g_0p91: ldo1 {
++			regulator-name = "vreg_l1g_0p91";
++			regulator-min-microvolt = <912000>;
++			regulator-max-microvolt = <920000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l3g_0p91: ldo3 {
++			regulator-name = "vreg_l3g_0p91";
++			regulator-min-microvolt = <880000>;
++			regulator-max-microvolt = <912000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-5 {
++		compatible = "qcom,pm8550ve-rpmh-regulators";
++
++		vdd-l1-supply = <&vreg_s3c_0p9>;
++		vdd-l2-supply = <&vreg_s3c_0p9>;
++		vdd-l3-supply = <&vreg_s1c_1p2>;
++		vdd-s4-supply = <&vph_pwr>;
++
++		qcom,pmic-id = "i";
++
++		vreg_s4i_0p85: smps4 {
++			regulator-name = "vreg_s4i_0p85";
++			/* s5ea: AOSP cnss vdd-wlan ~0.94V (was 0.852) */
++			regulator-min-microvolt = <940000>;
++			regulator-max-microvolt = <1004000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l1i_0p88: ldo1 {
++			regulator-name = "vreg_l1i_0p88";
++			regulator-min-microvolt = <880000>;
++			regulator-max-microvolt = <912000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l2i_0p88: ldo2 {
++			regulator-name = "vreg_l2i_0p88";
++			regulator-min-microvolt = <880000>;
++			regulator-max-microvolt = <912000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l3i_1p2: ldo3 {
++			regulator-name = "vreg_l3i_1p2";
++			regulator-min-microvolt = <1200000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	/*
++	 * s5ed: AOSP cnss-kiwi / bt_kiwi share vdd-wlan-ant-share = L6K
++	 * (pmr735d ldo6 @ ~1.8V). Mainline had no pmr735d regulators node;
++	 * always-on until we have a consumer property on wcn7850-pmu.
++	 */
++	regulators-6 {
++		compatible = "qcom,pmr735d-rpmh-regulators";
++		qcom,pmic-id = "k";
++
++		vdd-l6-supply = <&vreg_bob1>;
++
++		vreg_l6k_1p8: ldo6 {
++			regulator-name = "vreg_l6k_1p8";
++			/* AOSP: min 1.776V max 1.86V, init 1.8V */
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++			regulator-always-on;
++			regulator-boot-on;
++			regulator-allow-set-load;
++			regulator-allowed-modes = <RPMH_REGULATOR_MODE_LPM
++						   RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++};
++
++&gpu {
++	/*
++	 * s5et: enable Adreno a750 + GMU. Needs uncompressed FW on rootfs
++	 * (CONFIG_FW_LOADER_COMPRESS=n): qcom/sm8650/gen70900_zap.mbn,
++	 * qcom/gmu_gen70900.bin, qcom/gen70900_{sqe,aqe}.fw.
++	 * Earlier bring-up disabled this to avoid mdss -ETIMEDOUT without FW.
++	 */
++	status = "okay";
++};
++
++&adreno_smmu {
++	status = "okay";
++};
++
++&gpu_zap_shader {
++	/*
++	 * Must be stock vendor zap (notes/firmware-gpu-sm8650/).
++	 * linux-firmware generic SM8650 zap → SCM -EINVAL (s5et).
++	 */
++	firmware-name = "qcom/sm8650/gen70900_zap.mbn";
++};
++
++&mdss {
++	/* Parent OK with msm-mdss bound (mdss-shell PASS). */
++	status = "okay";
++};
++
++&mdss_mdp {
++	/*
++	 * s2-noasgn PASS (got 5 clks). Hang was assigned-clocks on
++	 * clk_bulk_get; keep PD/OPP/assigned-clocks peeled.
++	 */
++	status = "okay";
++	/delete-property/ power-domains;
++	/delete-property/ operating-points-v2;
++	/delete-property/ assigned-clocks;
++	/delete-property/ assigned-clock-rates;
++};
++
++&mdss_dsi0 {
++	vdda-supply = <&vreg_l3i_1p2>;
++
++	/*
++	 * Panel: Raydium RM692H0 (cerro BF068). Keep PD/OPP peeled for now;
++	 * restore assigned-clocks (s5ad: link clk set_rate -22 without them).
++	 */
++	status = "okay";
++	/delete-property/ power-domains;
++	/delete-property/ operating-points-v2;
++
++	panel@0 {
++		compatible = "raydium,rm692h0", "zte,bf068-rm692h0";
++		reg = <0>;
++
++		reset-gpios = <&tlmm 133 GPIO_ACTIVE_LOW>;
++		/* CMD mode TE (vendor te-pin-select / gpio86 mdp_vsync). */
++		te-gpios = <&tlmm 86 GPIO_ACTIVE_HIGH>;
++
++		/* Vendor: vddiocerro/vdddcerro GPIO + vdd/vci LDOs */
++		vddio-supply = <&display_panel_vddio>;
++		vddd-supply = <&display_panel_vddd>;
++		vdd-supply = <&vreg_l11b_1p2>;
++		vci-supply = <&vreg_l13b_3p0>;
++
++		pinctrl-0 = <&disp0_reset_n_active>, <&mdp_vsync>;
++		pinctrl-1 = <&disp0_reset_n_suspend>, <&mdp_vsync>;
++		pinctrl-names = "default", "sleep";
++
++		port {
++			panel0_in: endpoint {
++				remote-endpoint = <&mdss_dsi0_out>;
++			};
++		};
++	};
++};
++
++&mdss_dsi0_out {
++	remote-endpoint = <&panel0_in>;
++	data-lanes = <0 1 2 3>;
++	/*
++	 * s5bo: force GPIO TE. Livetree uses prefer_builtin_dtb → must refresh
++	 * arch/arm64/kernel/sm8650-nubia-cerro.dtb (not only boot/dts or dtb-id).
++	 */
++	qcom,te-source = "mdp_vsync_p";
++};
++
++&mdss_dsi0_phy {
++	vdds-supply = <&vreg_l1i_0p88>;
++
++	status = "okay";
++};
++
++&pon_pwrkey {
++	status = "okay";
++};
++
++&pon_resin {
++	linux,code = <KEY_VOLUMEDOWN>;
++
++	status = "okay";
++};
++
++&pm8550_gpios {
++	volume_up_n: volume-up-n-state {
++		pins = "gpio6";
++		function = "normal";
++		bias-pull-up;
++		input-enable;
++		power-source = <1>;
++	};
++};
++
++&pm8550b_eusb2_repeater {
++	vdd18-supply = <&vreg_l15b_1p8>;
++	vdd3-supply = <&vreg_l5b_3p1>;
++};
++
++&qupv3_id_0 {
++	status = "okay";
++};
++
++/* QRD enables both wraps; match for SPI/touch bring-up. */
++&qupv3_id_1 {
++	status = "okay";
++};
++
++&spi4 {
++	status = "okay";
++
++	/*
++	 * s5di: QRD-style native HW CS (gpio51 = qup1_se4), keep s5dg MISO
++	 * pull-up so float reads 0xff. (s5dg used cs-gpios; still mute.)
++	 */
++	pinctrl-0 = <&ts_spi_miso>, <&ts_spi_mosi_clk>, <&ts_spi_cs_hw>;
++	pinctrl-names = "default";
++
++	touchscreen@0 {
++		compatible = "goodix,gt9916";
++		reg = <0>;
++
++		interrupt-parent = <&tlmm>;
++		/*
++		 * Vendor irq-flags=0x02 (EDGE_FALLING). QRD uses LEVEL_LOW;
++		 * keep EDGE_FALLING to match Cerro DTBO.
++		 */
++		interrupts = <162 IRQ_TYPE_EDGE_FALLING>;
++
++		/*
++		 * Vendor requests reset with GPIOF_OUT_INIT_LOW and later
++		 * drives gpio=1 to run — physical HIGH = release.
++		 * That matches GPIO_ACTIVE_LOW (assert=LOW).
++		 * (s5db ACTIVE_HIGH also failed confirm.)
++		 */
++		reset-gpios = <&tlmm 161 GPIO_ACTIVE_LOW>;
++		/* s5dj: drive during reset; same pin as interrupts */
++		irq-gpios = <&tlmm 162 GPIO_ACTIVE_HIGH>;
++
++		/* s5dk: brl-d AVDD=gpio28 load-switch; IOVDD=L12B (AOSP pm_humu_l12) */
++		avdd-supply = <&ts_avdd>;
++		vddio-supply = <&vreg_l12b_1p8>;
++
++		/* Live brl-d node: 20MHz (gt9916S disabled path was 1MHz) */
++		spi-max-frequency = <20000000>;
++
++		/*
++		 * AOSP brl-d: goodix,panel-max-x/y = 0x45c0 / 0x9b00
++		 * (= 16 × 1116 × 2480). IC reports in that space; s5dl used
++		 * 1116×2480 so ABS max was too small (raw Y saw >2479).
++		 */
++		touchscreen-size-x = <17856>;
++		touchscreen-size-y = <39680>;
++
++		pinctrl-0 = <&ts_irq>, <&ts_reset>, <&ts_avdd_gpio>;
++		pinctrl-names = "default";
++	};
++};
++
++/* SPI4 touch needs GPI DMA (geni_spi deferred without it). */
++&gpi_dma1 {
++	status = "okay";
++};
++
++&tlmm {
++	disp0_reset_n_active: disp0-reset-n-active-state {
++		pins = "gpio133";
++		function = "gpio";
++		drive-strength = <8>;
++		bias-disable;
++	};
++
++	disp0_reset_n_suspend: disp0-reset-n-suspend-state {
++		pins = "gpio133";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-pull-down;
++	};
++
++	mdp_vsync: mdp-vsync-state {
++		pins = "gpio86";
++		function = "mdp_vsync";
++		drive-strength = <2>;
++		bias-pull-down;
++	};
++
++	/* irq=gpio162, reset=gpio161 (was swapped; broke Goodix probe) */
++	ts_irq: ts-irq-state {
++		pins = "gpio162";
++		function = "gpio";
++		drive-strength = <8>;
++		bias-pull-up;
++		output-disable;
++	};
++
++	ts_reset: ts-reset-state {
++		pins = "gpio161";
++		function = "gpio";
++		drive-strength = <8>;
++		bias-pull-up;
++	};
++
++	/* s5dk: mux AVDD enable as GPIO (level driven by regulator-fixed) */
++	ts_avdd_gpio: ts-avdd-gpio-state {
++		pins = "gpio28";
++		function = "gpio";
++		drive-strength = <8>;
++		bias-disable;
++	};
++
++	/* s5dg/s5di: SPI4 MISO pull-up (float→0xff); MOSI/CLK no pull */
++	ts_spi_miso: ts-spi-miso-state {
++		pins = "gpio48";
++		function = "qup1_se4";
++		drive-strength = <8>;
++		bias-pull-up;
++	};
++
++	ts_spi_mosi_clk: ts-spi-mosi-clk-state {
++		pins = "gpio49", "gpio50";
++		function = "qup1_se4";
++		drive-strength = <8>;
++		bias-disable;
++	};
++
++	/* s5di: native CS (was ts_spi_cs_gpio in s5dg) */
++	ts_spi_cs_hw: ts-spi-cs-hw-state {
++		pins = "gpio51";
++		function = "qup1_se4";
++		drive-strength = <8>;
++		bias-disable;
++	};
++
++	/* s5ex: WCD939x reset (vb_04 / QRD gpio107) */
++	wcd_default: wcd-reset-n-active-state {
++		pins = "gpio107";
++		function = "gpio";
++		drive-strength = <16>;
++		bias-disable;
++		output-low;
++	};
++
++	/*
++	 * s5fu: AOSP/stock pri_mi2s / i2s0 (vb_03 aux0_pcm_*).
++	 * gpio126 sck, 129 ws, 127 data0, 128 data1 — drive 8 like vendor active.
++	 */
++	pri_mi2s_active: pri-mi2s-active-state {
++		sck-pins {
++			pins = "gpio126";
++			function = "i2s0_sck";
++			drive-strength = <8>;
++			bias-disable;
++			output-high;
++		};
++
++		ws-pins {
++			pins = "gpio129";
++			function = "i2s0_ws";
++			drive-strength = <8>;
++			bias-disable;
++			output-high;
++		};
++
++		data0-pins {
++			pins = "gpio127";
++			function = "i2s0_data0";
++			drive-strength = <8>;
++			bias-disable;
++		};
++
++		data1-pins {
++			pins = "gpio128";
++			function = "i2s0_data1";
++			drive-strength = <8>;
++			bias-disable;
++		};
++	};
++
++	/* s5fk: match downstream aud_active (output-high). SD_N is ACTIVE_LOW
++	 * in powerdown-gpios; physical HIGH = out of shutdown. QRD mainline
++	 * uses output-low + driver deassert; on cerro WSA stayed UNATTACHED
++	 * with left LPASS21 stuck low — try board-faithful pinctrl first.
++	 */
++	spkr_2_sd_n_active: spkr-2-sd-n-active-state {
++		pins = "gpio77";
++		function = "gpio";
++		drive-strength = <16>;
++		bias-disable;
++		output-high;
++	};
++
++	/* s5fq: drop spkr_2_sd_n_hog — restore powerdown-gpios consumer */
++
++	bt_default: bt-default-state {
++		bt-en-pins {
++			pins = "gpio17";
++			function = "gpio";
++			drive-strength = <16>;
++			bias-disable;
++		};
++
++		/* s5eh: drive high via pwrseq; drop pull-down that left pins low when undriven */
++		sw-ctrl-pins {
++			pins = "gpio18";
++			function = "gpio";
++			drive-strength = <8>;
++			bias-disable;
++		};
++
++		/* cerro dtbo: qcom,wlan-sw-ctrl-gpio = tlmm 19 (QRD has only 18) */
++		wlan-sw-ctrl-pins {
++			pins = "gpio19";
++			function = "gpio";
++			drive-strength = <8>;
++			bias-disable;
++		};
++	};
++
++	wlan_en: wlan-en-state {
++		pins = "gpio16";
++		function = "gpio";
++		drive-strength = <8>;
++		bias-pull-down;
++	};
++};
++
++/*
++ * s5dx: PERST/wake on &pcie0 like sm8650-qrd / ayaneo (s5dv put them on
++ * pcieport0; gpio94 stayed input / WLAN_EN never asserted).
++ */
++&pcie0 {
++	wake-gpios = <&tlmm 96 GPIO_ACTIVE_HIGH>;
++	perst-gpios = <&tlmm 94 GPIO_ACTIVE_LOW>;
++
++	pinctrl-0 = <&pcie0_default_state>;
++	pinctrl-names = "default";
++
++	status = "okay";
++};
++
++&pcieport0 {
++	/* s5eb: match QRD (drop Gen1/lane overrides; s5ea still DNF) */
++	t-power-on-us = <200000>;
++
++	wifi@0 {
++		compatible = "pci17cb,1107";
++		reg = <0x10000 0x0 0x0 0x0 0x0>;
++
++		vddrfacmn-supply = <&vreg_pmu_rfa_cmn>;
++		vddaon-supply = <&vreg_pmu_aon_0p59>;
++		vddwlcx-supply = <&vreg_pmu_wlcx_0p8>;
++		vddwlmx-supply = <&vreg_pmu_wlmx_0p85>;
++		vddrfa0p8-supply = <&vreg_pmu_rfa_0p8>;
++		vddrfa1p2-supply = <&vreg_pmu_rfa_1p2>;
++		vddrfa1p8-supply = <&vreg_pmu_rfa_1p8>;
++		vddpcie0p9-supply = <&vreg_pmu_pcie_0p9>;
++		vddpcie1p8-supply = <&vreg_pmu_pcie_1p8>;
++	};
++};
++
++&pcie0_phy {
++	vdda-phy-supply = <&vreg_l1i_0p88>;
++	vdda-pll-supply = <&vreg_l3i_1p2>;
++
++	status = "okay";
++};
++
++/*
++ * Cellular candidate 1: use the upstream SM8650 4 MiB rmtfs reservation at
++ * 0xd7c00000 (the Cerro stock map leaves the range before tz@d8000000 free).
++ * Userspace starts this auto_boot=false remoteproc only after publishing the
++ * read-only raw-partition RMTFS service.
++ */
++&ipa {
++	qcom,gsi-loader = "self";
++	memory-region = <&ipa_fw_mem>;
++	firmware-name = "qcom/sm8650/ipa_fws.mdt";
++
++	status = "okay";
++};
++
++/*
++ * Stock pineapple-ipa.dtbo adds an identity mapping 0x14683000..0x14684fff
++ * to the IPA AP SMMU context (SID 0x4a0).  The IPA driver only identity-maps
++ * this DT sram window, so the mainline modem-tables@8000 default left the
++ * stock-required IOVA 0x14684080 unmapped: every boot produced the same
++ * apps-SMMU translation fault (FSR 0x402, cb5) followed by whole-device
++ * hard resets.  Moving the window to the stock offset 0x3000 eliminates the
++ * fault and the reset loop (stability-ipa-imem-c1, verified 2026-08-19).
++ */
++&ipa_modem_tables {
++	reg = <0x3000 0x2000>;
++};
++
++&remoteproc_mpss {
++	firmware-name = "qcom/sm8650/modem.mdt",
++			"qcom/sm8650/modem_dtb.mdt";
++
++	status = "okay";
++};
++
++/*
++ * Cerro stock MPSS queries Dynamic Heap Memory Sharing client 1 and requests
++ * exactly 5 MiB before IPA/DMS initialization.  Keep all five stock clients;
++ * the service driver is loaded before qcom_q6v5_pas starts the modem.
++ */
++&soc {
++	qcom,memshare {
++		compatible = "qcom,memshare";
++
++		qcom,client_1 {
++			compatible = "qcom,memshare-peripheral";
++			qcom,peripheral-size = <0>;
++			qcom,client-id = <0>;
++			qcom,allocate-boot-time;
++			label = "modem";
++		};
++
++		qcom,client_2 {
++			compatible = "qcom,memshare-peripheral";
++			qcom,peripheral-size = <0>;
++			qcom,client-id = <2>;
++			label = "modem";
++		};
++
++		qcom,client_3 {
++			compatible = "qcom,memshare-peripheral";
++			qcom,peripheral-size = <0x00500000>;
++			qcom,client-id = <1>;
++			qcom,allocate-on-request;
++			label = "modem";
++		};
++
++		qcom,client_4 {
++			compatible = "qcom,memshare-peripheral";
++			qcom,peripheral-size = <0x01000000>;
++			qcom,client-id = <5>;
++			qcom,allocate-on-request;
++			qcom,shared;
++			memory-region = <&qmc_dma_region>;
++			label = "modem";
++		};
++
++		qcom,client_5 {
++			compatible = "qcom,memshare-peripheral";
++			qcom,peripheral-size = <0x00400000>;
++			qcom,client-id = <6>;
++			qcom,allocate-on-request;
++			qcom,shared;
++			label = "modem";
++		};
++	};
++};
++
++/* s5fc: ADSP okay but driver auto_boot=false (see qcom_q6v5_pas cerro data).
++ * cerro-audio stages modem_a fw then echo start. s5fa auto-boot hung pre-getty.
++ */
++&remoteproc_adsp {
++	firmware-name = "qcom/sm8650/adsp.mdt",
++			"qcom/sm8650/adsp_dtb.mdt";
++
++	status = "okay";
++};
++
++/*
++ * s5ff: PDR never publishes msm/adsp/audio_pd → aprbus stays empty → no q6prm
++ * clocks → va_macro deferred forever. Skip PD gate for bringup (services still
++ * talk to ADSP over GPR once registered).
++ */
++&lpass_vamacro {
++	pinctrl-0 = <&dmic01_default>, <&dmic23_default>;
++	pinctrl-names = "default";
++};
++
++&q6apm {
++	/delete-property/ qcom,protection-domain;
++};
++
++&q6prm {
++	/delete-property/ qcom,protection-domain;
++};
++
++&lpass_tlmm {
++	/* s5fk: downstream spkr_02_sd_n_active = output-high on LPASS gpio21 */
++	spkr_1_sd_n_active: spkr-1-sd-n-active-state {
++		pins = "gpio21";
++		function = "gpio";
++		drive-strength = <16>;
++		bias-disable;
++		output-high;
++	};
++
++	/* s5fq: drop spkr_1_sd_n_hog — wsa884x powerdown-gpios owns the line */
++};
++
++/*
++ * s5fr/s5fs: Cerro has no WSA884x on swr0 (AOSP/stock wsa-macro disabled).
++ * Speakers are AW88261 on &i2c_hub_3.
++ */
++&swr0 {
++	status = "disabled";
++};
++
++/*
++ * s5fs: parent hub must be okay or i2c@98c000 never probes (s5fr lesson:
++ * DT had aw88261 nodes + module loaded, but /sys/bus/i2c/devices empty).
++ */
++&i2c_master_hub_0 {
++	status = "okay";
++};
++
++/*
++ * AOSP: qupv3_hub_i2c3 @98c000, aw882xx_smartpa@34/@35, chipid 0x2113.
++ * sound-channel: @34=1 @35=0. Firmware: notes/firmware-aw882xx/aw882xx_acf.bin
++ */
++&i2c_hub_3 {
++	status = "okay";
++
++	spkr_left: audio-codec@34 {
++		compatible = "awinic,aw88261";
++		reg = <0x34>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "SpkrLeft";
++		dvdd-supply = <&vreg_l15b_1p8>;
++		awinic,audio-channel = <1>;
++		firmware-name = "aw882xx_acf.bin";
++	};
++
++	spkr_right: audio-codec@35 {
++		compatible = "awinic,aw88261";
++		reg = <0x35>;
++		#sound-dai-cells = <0>;
++		sound-name-prefix = "SpkrRight";
++		dvdd-supply = <&vreg_l15b_1p8>;
++		awinic,audio-channel = <0>;
++		firmware-name = "aw882xx_acf.bin";
++	};
++};
++
++&swr1 {
++	status = "okay";
++
++	wcd_rx: codec@0,4 {
++		compatible = "sdw20217010e00";
++		reg = <0 4>;
++		qcom,rx-port-mapping = <1 2 3 4 5 9>;
++	};
++};
++
++&swr2 {
++	status = "okay";
++
++	wcd_tx: codec@0,3 {
++		compatible = "sdw20217010e00";
++		reg = <0 3>;
++		qcom,tx-port-mapping = <2 2 3 4>;
++	};
++};
++
++/* s5du: keep BT; PCIe enabled above */
++&uart14 {
++	status = "okay";
++
++	bluetooth {
++		compatible = "qcom,wcn7850-bt";
++
++		vddrfacmn-supply = <&vreg_pmu_rfa_cmn>;
++		vddaon-supply = <&vreg_pmu_aon_0p59>;
++		vddwlcx-supply = <&vreg_pmu_wlcx_0p8>;
++		vddwlmx-supply = <&vreg_pmu_wlmx_0p85>;
++		vddrfa0p8-supply = <&vreg_pmu_rfa_0p8>;
++		vddrfa1p2-supply = <&vreg_pmu_rfa_1p2>;
++		vddrfa1p8-supply = <&vreg_pmu_rfa_1p8>;
++
++		max-speed = <3200000>;
++		/* Little-endian. Displays as 02:00:95:0B:4D:FF. */
++		local-bd-address = [ ff 4d 0b 95 00 02 ];
++	};
++};
++
++&uart15 {
++	status = "okay";
++};
++
++&ufs_mem_hc {
++	reset-gpios = <&tlmm 210 GPIO_ACTIVE_LOW>;
++
++	vcc-supply = <&vreg_l17b_2p5>;
++	vcc-max-microamp = <1300000>;
++	vccq-supply = <&vreg_l1c_1p2>;
++	vccq-max-microamp = <1200000>;
++
++	status = "okay";
++};
++
++&ufs_mem_phy {
++	vdda-phy-supply = <&vreg_l1d_0p88>;
++	vdda-pll-supply = <&vreg_l3i_1p2>;
++
++	status = "okay";
++};
++
++&usb_1 {
++	/* Path A bring-up used peripheral-only; OTG needs dual-role + role switch
++	 * (SM8650 HDK/MTP). pmic-glink connector already data-role/power-role dual. */
++	dr_mode = "otg";
++	usb-role-switch;
++
++	status = "okay";
++};
++
++&usb_1_dwc3_hs {
++	remote-endpoint = <&pmic_glink_hs_in>;
++};
++
++&usb_1_hsphy {
++	vdd-supply = <&vreg_l1i_0p88>;
++	vdda12-supply = <&vreg_l3i_1p2>;
++
++	phys = <&pm8550b_eusb2_repeater>;
++
++	status = "okay";
++};
++
++&usb_dp_qmpphy {
++	vdda-phy-supply = <&vreg_l3i_1p2>;
++	vdda-pll-supply = <&vreg_l3g_0p91>;
++
++	status = "okay";
++};
++
++&usb_dp_qmpphy_out {
++	remote-endpoint = <&pmic_glink_ss_in>;
++};
++
++/* Aurora Cerro routes DP AUX through WCD939x USBSS at a8c000:0e/L15B.
++ * No reset GPIO is described for this board (do not copy QRD GPIO152).
++ * The headset graph is a separate audio experiment; this is DP SBU only.
++ */
++&i2c3 {
++	status = "okay";
++
++	wcd_usbss: typec-mux@e {
++		compatible = "qcom,wcd9395-usbss", "qcom,wcd9390-usbss";
++		reg = <0xe>;
++		vdd-supply = <&vreg_l15b_1p8>;
++		mode-switch;
++		orientation-switch;
++
++		ports {
++			#address-cells = <1>;
++			#size-cells = <0>;
++
++			port@0 {
++				reg = <0>;
++				wcd_usbss_sbu_mux: endpoint {
++					remote-endpoint = <&pmic_glink_sbu>;
++				};
++			};
++		};
++	};
++};
++
++&mdss_dp0 {
++	status = "okay";
++};
++
++/*
++ * Camera SoC bring-up (2026-10-23): enable CAMSS + CCI only.
++ * CSIPHY supplies: Android/QRD share ~0.9V/1.2V rails (cerro L2I/L3I).
++ * Wire all three supply groups so every CSIPHY can regulator_bulk_get.
++ * Sensors (imx800/…) are a later single-variable DT+driver step.
++ */
++&camss {
++	vdd-csiphy01-0p9-supply = <&vreg_l2i_0p88>;
++	vdd-csiphy01-1p2-supply = <&vreg_l3i_1p2>;
++	vdd-csiphy24-0p9-supply = <&vreg_l2i_0p88>;
++	vdd-csiphy24-1p2-supply = <&vreg_l3i_1p2>;
++	vdd-csiphy35-0p9-supply = <&vreg_l2i_0p88>;
++	vdd-csiphy35-1p2-supply = <&vreg_l3i_1p2>;
++	status = "okay";
++};
++
++&cci0 {
++	status = "okay";
++};
++
++&cci1 {
++	status = "okay";
++};
++
++&cci2 {
++	status = "okay";
++};
++
++&xo_board {
++	clock-frequency = <76800000>;
++};
++
++&reserved_memory {
++	hwfence_shbuf: hwfence-shbuf@d4e23000 {
++		reg = <0 0xd4e23000 0 0x2dd000>;
++		no-map;
++	};
++
++	qmc_dma_region: qmc-dma-region {
++		compatible = "shared-dma-pool";
++		reusable;
++		size = <0 0x01000000>;
++		alignment = <0 0x00400000>;
++		alloc-ranges = <0 0 0 0xffffffff>;
++	};
++
++	/* s5dr: drop cnss CMA until RF subset boots */
++};
++
++/*
++ * TODO (post-bring-up, cerro-specific, extracted downstream data in
++ * ../notes/cerro-hardware.md and ../downstream-dt/dts/dtbo_1.dts):
++ *   - WiFi/BT DTS (s5dn): WCN7850 via PCIe0+UART14, QRD-compatible wiring
++ *     verified against downstream cnss-kiwi / pcie0. Still need modules +
++ *     ath12k/qca firmware on rootfs; modem needs vendor MBA/modem + rmtfs.
++ *   - NFC: st21nfc@08 (I2C) + st54spi (SPI secure element).
++ *   - Audio (s5fr): WCD939x headset; 2× AW88261 on i2c_hub_3 (not WSA884x).
++ *   - Haptics: awinic haptic_hv@5A (I2C).
++ *   - Game shoulder-key slider: gpio_keys_nubia (game_sw_on/off) - need
++ *     the exact TLMM pins from a fuller downstream dump.
++ *   - Fingerprint (goodix, SPI, pwr gpio TLMM93): no mainline driver.
++ */
+diff --git a/arch/arm64/kernel/Makefile b/arch/arm64/kernel/Makefile
+index d2690c3ec..9a102e9d6 100644
+--- a/arch/arm64/kernel/Makefile
++++ b/arch/arm64/kernel/Makefile
+@@ -77,6 +77,10 @@ obj-$(CONFIG_COMPAT_VDSO)		+= vdso32-wrap.o
+ $(obj)/vdso-wrap.o: $(obj)/vdso/vdso.so
+ $(obj)/vdso32-wrap.o: $(obj)/vdso32/vdso.so
+ 
++# Cerro: prefer_builtin_dtb embeds board DTB (incbin via wrap.S)
++obj-y					+= sm8650-nubia-cerro-dtb-wrap.o
++$(obj)/sm8650-nubia-cerro-dtb-wrap.o: $(obj)/sm8650-nubia-cerro.dtb
++
+ obj-y					+= probes/
+ obj-y					+= head.o
+ always-$(KBUILD_BUILTIN)		+= vmlinux.lds
+diff --git a/arch/arm64/kernel/sm8650-nubia-cerro-dtb-wrap.S b/arch/arm64/kernel/sm8650-nubia-cerro-dtb-wrap.S
+new file mode 100644
+index 000000000..1a523f8c9
+--- /dev/null
++++ b/arch/arm64/kernel/sm8650-nubia-cerro-dtb-wrap.S
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++	.section .rodata,"a"
++	.balign 8
++	.global __dtb_sm8650_nubia_cerro_begin
++__dtb_sm8650_nubia_cerro_begin:
++	.incbin "arch/arm64/kernel/sm8650-nubia-cerro.dtb"
++	.balign 8
++	.global __dtb_sm8650_nubia_cerro_end
++__dtb_sm8650_nubia_cerro_end:
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
+index 778e231d4..7d3e7c7a8 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder.c
+@@ -133,6 +133,7 @@ enum dpu_enc_rc_states {
+  * @cur_master:		Pointer to the current master in this mode. Optimization
+  *			Only valid after enable. Cleared as disable.
+  * @cur_slave:		As above but for the slave encoder.
++ * @hw_mixer:		Handle to the layer mixers used for the display.
+  * @hw_pp:		Handle to the pingpong blocks used for the display. No.
+  *			pingpong blocks can be different than num_phys_encs.
+  * @hw_cwb:		Handle to the CWB muxes used for concurrent writeback
+@@ -182,6 +183,7 @@ struct dpu_encoder_virt {
+ 	struct dpu_encoder_phys *phys_encs[MAX_PHYS_ENCODERS_PER_VIRTUAL];
+ 	struct dpu_encoder_phys *cur_master;
+ 	struct dpu_encoder_phys *cur_slave;
++	struct dpu_hw_mixer *hw_mixer[MAX_CHANNELS_PER_ENC];
+ 	struct dpu_hw_pingpong *hw_pp[MAX_CHANNELS_PER_ENC];
+ 	struct dpu_hw_cwb *hw_cwb[MAX_CWB_PER_ENC];
+ 	struct dpu_hw_dsc *hw_dsc[MAX_CHANNELS_PER_ENC];
+@@ -1157,11 +1159,12 @@ static void dpu_encoder_virt_atomic_mode_set(struct drm_encoder *drm_enc,
+ 	struct msm_drm_private *priv;
+ 	struct dpu_kms *dpu_kms;
+ 	struct dpu_global_state *global_state;
++	struct dpu_hw_blk *hw_lm[MAX_CHANNELS_PER_ENC];
+ 	struct dpu_hw_blk *hw_pp[MAX_CHANNELS_PER_ENC];
+ 	struct dpu_hw_blk *hw_ctl[MAX_CHANNELS_PER_ENC];
+ 	struct dpu_hw_blk *hw_dsc[MAX_CHANNELS_PER_ENC];
+ 	struct dpu_hw_blk *hw_cwb[MAX_CHANNELS_PER_ENC];
+-	int num_ctl, num_pp, num_dsc, num_pp_per_intf;
++	int num_ctl, num_lm, num_pp, num_dsc, num_pp_per_intf;
+ 	int num_cwb = 0;
+ 	bool is_cwb_encoder;
+ 	unsigned int dsc_mask = 0;
+@@ -1190,6 +1193,14 @@ static void dpu_encoder_virt_atomic_mode_set(struct drm_encoder *drm_enc,
+ 	trace_dpu_enc_mode_set(DRMID(drm_enc));
+ 
+ 	/* Query resource that have been reserved in atomic check step. */
++
++	num_lm = dpu_rm_get_assigned_resources(&dpu_kms->rm, global_state,
++		drm_enc->crtc, DPU_HW_BLK_LM, hw_lm, ARRAY_SIZE(hw_lm));
++
++	for (i = 0; i < ARRAY_SIZE(dpu_enc->hw_mixer); i++)
++		dpu_enc->hw_mixer[i] = i < num_lm ? to_dpu_hw_mixer(hw_lm[i])
++						: NULL;
++
+ 	if (is_cwb_encoder) {
+ 		num_pp = dpu_rm_get_assigned_resources(&dpu_kms->rm, global_state,
+ 						       drm_enc->crtc,
+@@ -2178,42 +2189,37 @@ void dpu_encoder_kickoff(struct drm_encoder *drm_enc)
+ 
+ static void dpu_encoder_helper_reset_mixers(struct dpu_encoder_phys *phys_enc)
+ {
+-	int i, num_lm;
+-	struct dpu_global_state *global_state;
+-	struct dpu_hw_blk *hw_lm[2];
+-	struct dpu_hw_mixer *hw_mixer[2];
++	int i;
+ 	struct dpu_hw_ctl *ctl = phys_enc->hw_ctl;
++	struct dpu_encoder_virt *dpu_enc = to_dpu_encoder_virt(phys_enc->parent);
+ 
+ 	/* reset all mixers for this encoder */
+ 	if (ctl->ops.clear_all_blendstages)
+ 		ctl->ops.clear_all_blendstages(ctl);
+ 
+-	global_state = dpu_kms_get_existing_global_state(phys_enc->dpu_kms);
+-
+-	num_lm = dpu_rm_get_assigned_resources(&phys_enc->dpu_kms->rm, global_state,
+-		phys_enc->parent->crtc, DPU_HW_BLK_LM, hw_lm, ARRAY_SIZE(hw_lm));
+-
+-	for (i = 0; i < num_lm; i++) {
+-		hw_mixer[i] = to_dpu_hw_mixer(hw_lm[i]);
+-		if (ctl->ops.update_pending_flush_mixer)
+-			ctl->ops.update_pending_flush_mixer(ctl, hw_mixer[i]->idx);
++	for (i = 0; i < ARRAY_SIZE(dpu_enc->hw_mixer); i++) {
++		if (dpu_enc->hw_mixer[i]) {
++			if (ctl->ops.update_pending_flush_mixer)
++				ctl->ops.update_pending_flush_mixer(ctl, dpu_enc->hw_mixer[i]->idx);
+ 
+-		/* clear all blendstages */
+-		if (ctl->ops.setup_blendstage)
+-			ctl->ops.setup_blendstage(ctl, hw_mixer[i]->idx, NULL);
++			/* clear all blendstages */
++			if (ctl->ops.setup_blendstage)
++				ctl->ops.setup_blendstage(ctl, dpu_enc->hw_mixer[i]->idx, NULL);
+ 
+-		if (hw_mixer[i]->ops.clear_all_blendstages)
+-			hw_mixer[i]->ops.clear_all_blendstages(hw_mixer[i]);
++			if (dpu_enc->hw_mixer[i]->ops.clear_all_blendstages)
++				dpu_enc->hw_mixer[i]->ops.clear_all_blendstages(
++					dpu_enc->hw_mixer[i]);
++		}
++	}
+ 
+-		if (ctl->ops.set_active_lms)
+-			ctl->ops.set_active_lms(ctl, NULL);
++	if (ctl->ops.set_active_lms)
++		ctl->ops.set_active_lms(ctl, NULL);
+ 
+-		if (ctl->ops.set_active_fetch_pipes)
+-			ctl->ops.set_active_fetch_pipes(ctl, NULL);
++	if (ctl->ops.set_active_fetch_pipes)
++		ctl->ops.set_active_fetch_pipes(ctl, NULL);
+ 
+-		if (ctl->ops.set_active_pipes)
+-			ctl->ops.set_active_pipes(ctl, NULL);
+-	}
++	if (ctl->ops.set_active_pipes)
++		ctl->ops.set_active_pipes(ctl, NULL);
+ }
+ 
+ static void dpu_encoder_dsc_pipe_clr(struct dpu_hw_ctl *ctl,
+@@ -2324,8 +2330,8 @@ void dpu_encoder_helper_phys_cleanup(struct dpu_encoder_phys *phys_enc)
+ 		dpu_enc->dsc = NULL;
+ 	}
+ 
+-	intf_cfg.stream_sel = 0; /* Don't care value for video mode */
+-	intf_cfg.mode_3d = dpu_encoder_helper_get_3d_blend_mode(phys_enc);
++	intf_cfg.stream_sel = 0; /* Ignored by reset_intf_cfg */
++	intf_cfg.mode_3d = 0; /* Ignored by reset_intf_cfg */
+ 	intf_cfg.dsc = dpu_encoder_helper_get_dsc(phys_enc);
+ 	intf_cfg.cwb = dpu_enc->cwb_mask;
+ 
+diff --git a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c
+index 45079ee59..111f9dd5e 100644
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_cmd.c
+@@ -538,7 +538,6 @@ static void dpu_encoder_phys_cmd_disable(struct dpu_encoder_phys *phys_enc)
+ {
+ 	struct dpu_encoder_phys_cmd *cmd_enc =
+ 		to_dpu_encoder_phys_cmd(phys_enc);
+-	struct dpu_hw_ctl *ctl;
+ 
+ 	if (phys_enc->enable_state == DPU_ENC_DISABLED) {
+ 		DPU_ERROR_CMDENC(cmd_enc, "already disabled\n");
+@@ -566,14 +565,7 @@ static void dpu_encoder_phys_cmd_disable(struct dpu_encoder_phys *phys_enc)
+ 			phys_enc->hw_pp->ops.disable_tearcheck(phys_enc->hw_pp);
+ 	}
+ 
+-	if (phys_enc->hw_intf->ops.bind_pingpong_blk) {
+-		phys_enc->hw_intf->ops.bind_pingpong_blk(
+-				phys_enc->hw_intf,
+-				PINGPONG_NONE);
+-
+-		ctl = phys_enc->hw_ctl;
+-		ctl->ops.update_pending_flush_intf(ctl, phys_enc->hw_intf->idx);
+-	}
++	dpu_encoder_helper_phys_cleanup(phys_enc);
+ 
+ 	phys_enc->enable_state = DPU_ENC_DISABLED;
+ }
+diff --git a/drivers/gpu/drm/msm/dp/dp_display.c b/drivers/gpu/drm/msm/dp/dp_display.c
+index dc6f33809..6f8f36713 100644
+--- a/drivers/gpu/drm/msm/dp/dp_display.c
++++ b/drivers/gpu/drm/msm/dp/dp_display.c
+@@ -696,8 +696,10 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	struct msm_dp_display_private *msm_dp_display;
+ 	struct msm_dp_link_info *link_info;
+ 	u32 mode_rate_khz = 0, supported_rate_khz = 0, mode_bpp = 0;
++	u32 link_pclk_khz = mode->clock;
+ 	struct msm_dp *dp;
+ 	int mode_pclk_khz = mode->clock;
++	bool is_yuv_420;
+ 
+ 	dp = to_dp_bridge(bridge)->msm_dp_display;
+ 
+@@ -709,10 +711,15 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 	msm_dp_display = container_of(dp, struct msm_dp_display_private, msm_dp_display);
+ 	link_info = &msm_dp_display->panel->link_info;
+ 
+-	if ((drm_mode_is_420_only(&dp->connector->display_info, mode) &&
+-	     msm_dp_display->panel->vsc_sdp_supported) ||
+-	     msm_dp_wide_bus_available(dp))
++	is_yuv_420 = drm_mode_is_420_only(&dp->connector->display_info, mode);
++	if (is_yuv_420 && !msm_dp_display->panel->vsc_sdp_supported)
++		return MODE_NO_420;
++
++	/* Wide bus halves the interface clock, not the DP link payload. */
++	if (is_yuv_420 || msm_dp_display->wide_bus_supported)
+ 		mode_pclk_khz /= 2;
++	if (is_yuv_420)
++		link_pclk_khz /= 2;
+ 
+ 	if (mode_pclk_khz > DP_MAX_PIXEL_CLK_KHZ)
+ 		return MODE_CLOCK_HIGH;
+@@ -722,9 +729,9 @@ enum drm_mode_status msm_dp_bridge_mode_valid(struct drm_bridge *bridge,
+ 		mode_bpp = default_bpp;
+ 
+ 	mode_bpp = msm_dp_panel_get_mode_bpp(msm_dp_display->panel,
+-			mode_bpp, mode_pclk_khz);
++			mode_bpp, link_pclk_khz);
+ 
+-	mode_rate_khz = mode_pclk_khz * mode_bpp;
++	mode_rate_khz = link_pclk_khz * mode_bpp;
+ 	supported_rate_khz = link_info->num_lanes * link_info->rate * 8;
+ 
+ 	if (mode_rate_khz > supported_rate_khz)
+diff --git a/drivers/gpu/drm/msm/dsi/dsi.h b/drivers/gpu/drm/msm/dsi/dsi.h
+index 93c028a12..6e58d65bc 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi.h
++++ b/drivers/gpu/drm/msm/dsi/dsi.h
+@@ -76,6 +76,8 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
+ 			struct msm_dsi_phy_shared_timings *phy_shared_timings,
+ 			bool is_bonded_dsi, struct msm_dsi_phy *phy);
+ int msm_dsi_host_power_off(struct mipi_dsi_host *host);
++const struct drm_display_mode *
++msm_dsi_host_get_display_mode(struct mipi_dsi_host *host);
+ int msm_dsi_host_set_display_mode(struct mipi_dsi_host *host,
+ 				  const struct drm_display_mode *mode);
+ enum drm_mode_status msm_dsi_host_check_dsc(struct mipi_dsi_host *host,
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
+index 982abaaac..9f6b1d27a 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -947,6 +947,9 @@ static void dsi_update_dsc_timing(struct msm_dsi_host *msm_host, bool is_cmd_mod
+ 	 *
+ 	 * Since the current driver only supports slice_per_pkt = 1,
+ 	 * pkt_per_line will be equal to slice per intf for now.
++	 *
++	 * TODO: Expand mipi_dsi_device struct to hold slice_per_pkt info
++	 *       and adjust DSC math to account for slice_per_pkt.
+ 	 */
+ 	pkt_per_line = slice_per_intf;
+ 
+@@ -2573,6 +2576,12 @@ int msm_dsi_host_power_off(struct mipi_dsi_host *host)
+ 	return 0;
+ }
+ 
++const struct drm_display_mode *
++msm_dsi_host_get_display_mode(struct mipi_dsi_host *host)
++{
++	return to_msm_dsi_host(host)->mode;
++}
++
+ int msm_dsi_host_set_display_mode(struct mipi_dsi_host *host,
+ 				  const struct drm_display_mode *mode)
+ {
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 3eac4d0f8..a78d74535 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -760,6 +760,18 @@ config DRM_PANEL_RAYDIUM_RM68200
+ 	  Say Y here if you want to enable support for Raydium RM68200
+ 	  720x1280 DSI video mode panel.
+ 
++config DRM_PANEL_RAYDIUM_RM692H0
++	tristate "Raydium RM692H0-based panels (e.g. ZTE BF068)"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	select DRM_DISPLAY_DSC_HELPER
++	select DRM_DISPLAY_HELPER
++	help
++	  Say Y here if you want to enable support for Raydium RM692H0-based
++	  panels, like the ZTE BF068 1116x2480 CMD-mode DSC panel on the
++	  Nubia Z60 Ultra (cerro).
++
+ config DRM_PANEL_RAYDIUM_RM692E5
+ 	tristate "Raydium RM692E5-based DSI panel"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index c2c5cf817..eb4838a46 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -76,6 +76,7 @@ obj-$(CONFIG_DRM_PANEL_RAYDIUM_RM67191) += panel-raydium-rm67191.o
+ obj-$(CONFIG_DRM_PANEL_RAYDIUM_RM67200) += panel-raydium-rm67200.o
+ obj-$(CONFIG_DRM_PANEL_RAYDIUM_RM68200) += panel-raydium-rm68200.o
+ obj-$(CONFIG_DRM_PANEL_RAYDIUM_RM692E5) += panel-raydium-rm692e5.o
++obj-$(CONFIG_DRM_PANEL_RAYDIUM_RM692H0) += panel-raydium-rm692h0.o
+ obj-$(CONFIG_DRM_PANEL_RAYDIUM_RM69380) += panel-raydium-rm69380.o
+ obj-$(CONFIG_DRM_PANEL_RENESAS_R61307) += panel-renesas-r61307.o
+ obj-$(CONFIG_DRM_PANEL_RENESAS_R69328) += panel-renesas-r69328.o
+diff --git a/drivers/gpu/drm/panel/panel-raydium-rm692h0.c b/drivers/gpu/drm/panel/panel-raydium-rm692h0.c
+new file mode 100644
+index 000000000..912ab9eb2
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-raydium-rm692h0.c
+@@ -0,0 +1,897 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Driver for ZTE BF068 (Raydium RM692H0) 1116x2480 CMD-mode DSC DSI panel.
++ *
++ * Reconstructed 2026-10-31 from the .cursor session archive (rong backup
++ * 20261013): the s5an..s5ew bisect history in the LOA_Nubia_Z60U agent
++ * transcripts. Key lessons baked in:
++ *   - s5an/s5ao/s5aq: vendor packets must go out with their exact MIPI dtype
++ *     (0x39 long write even for 2-byte FE page selects; 0x15 short with param).
++ *   - s5ar/s5at: wake (0x11) BEFORE the FE body; FE-before-wake bricks RX.
++ *   - s5ba: 0x15 B3 7F is a poison packet that bricks the panel RX (skipped).
++ *   - s5bq: PPS must be packed like msm dsi_populate_dsc_params
++ *     (drm_dsc_setup_rc_params PRE_SCR) so chunk=698 / xmit=410 match FE D2.
++ *   - enable(): re-kick 0x11/0x29 + PPS + compression after host enable
++ *     (prepare_prev_first), brightness is direct (s5bt superseded the inverted experiment).
++ */
++
++#include <linux/backlight.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++
++#include <drm/display/drm_dsc.h>
++#include <drm/display/drm_dsc_helper.h>
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++
++#include <video/mipi_display.h>
++
++/* MSM mode query restored with the original runtime refresh support. */
++extern const struct drm_display_mode *
++msm_dsi_host_get_display_mode(struct mipi_dsi_host *host);
++
++struct rm692h0_panel {
++	struct drm_panel panel;
++	struct mipi_dsi_device *dsi;
++	struct regulator_bulk_data *supplies;
++	struct gpio_desc *reset_gpio;
++	struct drm_dsc_config dsc;
++	bool prepared;
++	unsigned int cur_vrefresh;
++};
++
++static const struct regulator_bulk_data rm692h0_supplies[] = {
++	{ .supply = "vddio" },
++	{ .supply = "vddd" },
++	{ .supply = "vdd" },
++	{ .supply = "vci" },
++};
++
++static inline struct rm692h0_panel *to_rm692h0(struct drm_panel *panel)
++{
++	return container_of(panel, struct rm692h0_panel, panel);
++}
++
++/*
++ * Send DCS with an explicit MIPI data type to match vendor 0x05/0x15/0x39.
++ * MSM transfer returns 0 on success; only ret < 0 is failure (s5ao).
++ */
++static ssize_t rm692h0_dcs_typed_write(struct mipi_dsi_device *dsi, u8 type,
++				       const void *data, size_t len)
++{
++	const struct mipi_dsi_host_ops *ops = dsi->host->ops;
++	struct mipi_dsi_msg msg = {
++		.channel = dsi->channel,
++		.type = type,
++		.tx_buf = data,
++		.tx_len = len,
++	};
++
++	if (!ops || !ops->transfer)
++		return -ENOSYS;
++	if (!len)
++		return -EINVAL;
++	if (dsi->mode_flags & MIPI_DSI_MODE_LPM)
++		msg.flags |= MIPI_DSI_MSG_USE_LPM;
++
++	return ops->transfer(dsi->host, &msg);
++}
++
++static void rm692h0_dcs_typed_write_multi(struct mipi_dsi_multi_context *ctx,
++					  u8 type, const void *data, size_t len)
++{
++	struct mipi_dsi_device *dsi = ctx->dsi;
++	ssize_t ret;
++
++	if (ctx->accum_err)
++		return;
++
++	ret = rm692h0_dcs_typed_write(dsi, type, data, len);
++	if (ret < 0) {
++		ctx->accum_err = ret;
++		dev_err(&dsi->dev,
++			"cerro: rm692h0 dcs type=0x%02x len=%zu failed: %zd\n",
++			type, len, ret);
++	}
++}
++
++#define rm692h0_dcs_typed_write_seq_multi(ctx, type, seq...)		\
++	do {								\
++		static const u8 d[] = { seq };				\
++		rm692h0_dcs_typed_write_multi(ctx, type, d, ARRAY_SIZE(d)); \
++	} while (0)
++
++/* Vendor raw H/L/H mapped through GPIO_ACTIVE_LOW: finish released. */
++static void rm692h0_reset(struct rm692h0_panel *ctx)
++{
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	usleep_range(10000, 11000);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	usleep_range(10000, 11000);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	usleep_range(40000, 41000);
++}
++
++/*
++ * s5bq: PPS must match msm dsi_populate_dsc_params (setup_rc PRE_SCR) so
++ * initial_xmit_delay=410 / slice_chunk_size=698 agree with vendor FE D2.
++ */
++static int rm692h0_pack_pps(struct rm692h0_panel *ctx,
++			    struct drm_dsc_picture_parameter_set *pps)
++{
++	struct drm_dsc_config *dsc = &ctx->dsc;
++	int ret;
++
++	dsc->pic_width = 1116;
++	dsc->pic_height = 2480;
++	dsc->convert_rgb = true;
++	dsc->simple_422 = false;
++	dsc->vbr_enable = false;
++
++	drm_dsc_set_const_params(dsc);
++	drm_dsc_set_rc_buf_thresh(dsc);
++	ret = drm_dsc_setup_rc_params(dsc, DRM_DSC_1_1_PRE_SCR);
++	if (ret)
++		return ret;
++	dsc->initial_scale_value = drm_dsc_initial_scale_value(dsc);
++	dsc->line_buf_depth = dsc->bits_per_component + 1;
++	ret = drm_dsc_compute_rc_parameters(dsc);
++	if (ret)
++		return ret;
++	drm_dsc_pps_payload_pack(pps, dsc);
++	return 0;
++}
++
++/*
++ * DRM modes for KDE/KWin (Display settings → refresh rate).
++ * 60/120 porches from vendor timing@0/@1; 90 = linear mid + BD=0x02.
++ */
++static const struct drm_display_mode rm692h0_modes[] = {
++	{ /* 120Hz — preferred */
++		.clock = (1116 + 26 + 8 + 76) * (2480 + 56 + 8 + 8) * 120 / 1000,
++		.hdisplay = 1116,
++		.hsync_start = 1116 + 26,
++		.hsync_end = 1116 + 26 + 8,
++		.htotal = 1116 + 26 + 8 + 76,
++		.vdisplay = 2480,
++		.vsync_start = 2480 + 56,
++		.vsync_end = 2480 + 56 + 8,
++		.vtotal = 2480 + 56 + 8 + 8,
++		.width_mm = 71,
++		.height_mm = 157,
++		.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
++	},
++	{ /* 90Hz — cerro mid porch between 60 and 120 */
++		.clock = (1116 + 137 + 8 + 206) * (2480 + 56 + 8 + 8) * 90 / 1000,
++		.hdisplay = 1116,
++		.hsync_start = 1116 + 137,
++		.hsync_end = 1116 + 137 + 8,
++		.htotal = 1116 + 137 + 8 + 206,
++		.vdisplay = 2480,
++		.vsync_start = 2480 + 56,
++		.vsync_end = 2480 + 56 + 8,
++		.vtotal = 2480 + 56 + 8 + 8,
++		.width_mm = 71,
++		.height_mm = 157,
++		.type = DRM_MODE_TYPE_DRIVER,
++	},
++	{ /* 60Hz */
++		.clock = (1116 + 248 + 8 + 336) * (2480 + 56 + 8 + 8) * 60 / 1000,
++		.hdisplay = 1116,
++		.hsync_start = 1116 + 248,
++		.hsync_end = 1116 + 248 + 8,
++		.htotal = 1116 + 248 + 8 + 336,
++		.vdisplay = 2480,
++		.vsync_start = 2480 + 56,
++		.vsync_end = 2480 + 56 + 8,
++		.vtotal = 2480 + 56 + 8 + 8,
++		.width_mm = 71,
++		.height_mm = 157,
++		.type = DRM_MODE_TYPE_DRIVER,
++	},
++};
++
++static unsigned int rm692h0_normalize_hz(unsigned int hz)
++{
++	if (hz <= 75)
++		return 60;
++	if (hz <= 105)
++		return 90;
++	return 120;
++}
++
++static unsigned int rm692h0_pending_hz(struct rm692h0_panel *ctx)
++{
++	const struct drm_display_mode *mode;
++	unsigned int hz = ctx->cur_vrefresh ?: 120;
++
++	mode = msm_dsi_host_get_display_mode(ctx->dsi->host);
++	if (mode)
++		hz = drm_mode_vrefresh(mode);
++	return rm692h0_normalize_hz(hz);
++}
++
++/* Vendor timing-switch (LP): used when rate changes without full power cycle. */
++static int rm692h0_timing_switch(struct rm692h0_panel *ctx, unsigned int hz)
++{
++	struct mipi_dsi_device *dsi = ctx->dsi;
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = dsi };
++	u8 bd;
++
++	hz = rm692h0_normalize_hz(hz);
++	if (hz == ctx->cur_vrefresh)
++		return 0;
++
++	if (hz == 60)
++		bd = 0x00;
++	else if (hz == 90)
++		bd = 0x02;
++	else
++		bd = 0x05;
++
++	dev_err(&dsi->dev, "cerro: rm692h0 timing-switch %u→%u Hz (BD=0x%02x)\n",
++		ctx->cur_vrefresh, hz, bd);
++
++	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++	rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xfe, 0x40);
++	{
++		u8 bd_cmd[] = { 0xbd, bd };
++
++		rm692h0_dcs_typed_write_multi(&dsi_ctx, 0x39, bd_cmd,
++					      ARRAY_SIZE(bd_cmd));
++	}
++
++	if (hz == 60) {
++		/* vendor timing-switch@0 FE5A/5B set (abbrev from dtsi) */
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xfe, 0x5a);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x49, 0x5e, 0xff, 0xf0, 0xff, 0xff, 0xff, 0xf0, 0xff, 0xff, 0x00, 0xfd, 0xfd);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x58, 0x16, 0xfa);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x5e, 0x0f, 0x0f, 0x0f, 0x05);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x66, 0x00, 0x00, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x6e, 0x00, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x7e, 0x00, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x92, 0x4e, 0x22, 0x1f);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x99, 0x2d, 0x24, 0x0c, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x9e, 0x20, 0x20, 0x20);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xa2, 0x10, 0x03);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xa7, 0x10);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xa9, 0x10, 0x0d);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xac, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xb0, 0x08, 0x08, 0x05, 0x05, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xb8, 0x09, 0x09, 0x05, 0x00, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xc0, 0x08, 0x08, 0x03, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xc8, 0x06, 0x06, 0x02);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xea, 0x16);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xfe, 0x5b);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x2b, 0x4b);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x2d, 0x24);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x2f, 0x1f);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x30, 0x1f, 0x3f, 0x3f, 0x38, 0x32, 0x24, 0x0c, 0x00, 0x00, 0x25, 0x25, 0x1d);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x3d, 0x11);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x3f, 0x07);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x40, 0x04, 0x00, 0x00, 0x1a, 0x1a, 0x0e, 0x08, 0x03, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x4b, 0x08, 0x08, 0x08, 0x08);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x50, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x53, 0x09, 0x09, 0x05, 0x02);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x58, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x5c, 0x08, 0x08, 0x04, 0x01, 0x00);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x64, 0x07, 0x07, 0x03, 0x01);
++	} else {
++		/* vendor timing-switch@1 (also for 90 with BD=0x02) */
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xfe, 0x5a);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x49, 0x0f, 0x08, 0x04, 0x00, 0x06, 0x06, 0x06, 0x06, 0x06, 0x04);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x55, 0x10, 0x10);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x58, 0x05, 0x03);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x5e, 0x0f, 0x0f, 0x0f, 0x0a);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x66, 0x10, 0x10, 0x10);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x6e, 0x05, 0x05);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x76, 0x05, 0x05);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x7e, 0x05, 0x05);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x92, 0x72, 0x45, 0x25);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x99, 0x7f, 0x40, 0x0f, 0x03);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x9e, 0x30, 0x10, 0x3d);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xa2, 0x1d, 0x09);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xa7, 0x27);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xa9, 0x27, 0x1a);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xac, 0x04);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xb0, 0x20, 0x10, 0x0a, 0x0d, 0x03);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xb8, 0x12, 0x12, 0x0d, 0x03, 0x02);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xc0, 0x0e, 0x0e, 0x09, 0x03);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xc8, 0x0b, 0x0b, 0x07);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xea, 0x1f);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xfe, 0x5b);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x2b, 0x7a);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x2d, 0x45);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x2f, 0x32);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x31, 0x60, 0x1f, 0x60, 0x60, 0x60, 0x37, 0x18, 0x0f, 0x0a, 0x30, 0x30, 0x2b);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x3d, 0x1f);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x3f, 0x0f, 0x07, 0x02, 0x01, 0x1b, 0x1b, 0x1b, 0x0e, 0x06, 0x02);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x4b, 0x13, 0x13, 0x0d, 0x09);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x50, 0x01);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x53, 0x12, 0x12, 0x0b, 0x05);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x58, 0x03);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x5c, 0x0b, 0x0d, 0x08, 0x04, 0x02);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x5c, 0x0b, 0x00, 0x08, 0x04, 0x02);
++		rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0x64, 0x09, 0x09, 0x06, 0x02);
++	}
++
++	rm692h0_dcs_typed_write_seq_multi(&dsi_ctx, 0x39, 0xfe, 0x00);
++	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
++
++	if (dsi_ctx.accum_err)
++		return dsi_ctx.accum_err;
++
++	ctx->cur_vrefresh = hz;
++	return 0;
++}
++
++
++static void rm692h0_on(struct mipi_dsi_multi_context *dsi_ctx, unsigned int hz)
++{
++	u8 bd;
++
++	/*
++	 * s5bl: s5bk + init code FE00 C2/36/35/53 + FE60 block.
++	 * Skip poison B3 7F. Goal: grow toward emission while keeping 0x9c.
++	 * s5ew: BD selects panel TE rate — vendor 0x00=60, 0x05=120;
++	 * 90Hz uses 0x02 (cerro-interpolated; no vendor timing@90).
++	 */
++	if (hz <= 75)
++		bd = 0x00;
++	else if (hz <= 105)
++		bd = 0x02;
++	else
++		bd = 0x05;
++
++	dsi_ctx->dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++	mipi_dsi_dcs_exit_sleep_mode_multi(dsi_ctx);
++	mipi_dsi_msleep(dsi_ctx, 120);
++
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x98);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x20, 0x03);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x42);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x68, 0x02);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x40);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x0a, 0xc9);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x0b, 0x17);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x0c, 0x35);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xbe, 0xc9);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xbf, 0x11);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xc0, 0xc9);
++	{
++		u8 bd_cmd[] = { 0xbd, bd };
++
++		rm692h0_dcs_typed_write_multi(dsi_ctx, 0x39, bd_cmd,
++					      ARRAY_SIZE(bd_cmd));
++	}
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0xa1);
++	/* SKIP: 0x15, 0xb3, 0x7f — confirmed poison (s5ba → 0x00) */
++
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfa, 0x01);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x57);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xc2, 0x48);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x5a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x00, 0x80);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x1a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x0d, 0x64);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x40);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xdc, 0xb8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x42);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xda, 0x82);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x20);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x81, 0x80);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x34);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x47, 0x03);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x48, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x00, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x9f, 0x5c);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xa0, 0xc4);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x1c, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x1d, 0x10);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x49, 0x55);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x34);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x1e, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x1f, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x20, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x22, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x21, 0x70);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x23, 0xf8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x24, 0x77);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x25, 0xf8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x26, 0xf8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x2f, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x30, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x31, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x32, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x33, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x34, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x35, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x36, 0x40);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x37, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x38, 0x7f);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x39, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x3a, 0xb6);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x3b, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x3d, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x3f, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x40, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x41, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x42, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0xd4);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x40, 0x02);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0xfd);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x80, 0x06);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x83, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0xa0);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x06, 0x36);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x6e, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x7c, 0x15);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0xd0);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x11, 0x75);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x92, 0x03);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0xa1);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xc3, 0x87);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xc4, 0xff);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xc5, 0x7f);
++	/* VESA 10bit / FE D2 — first chunk */
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfa, 0x01);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0xd2);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x4f, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x50, 0x11);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x51, 0xab);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x52, 0x30);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x53, 0x09);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x54, 0xb0);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x55, 0x04);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x56, 0x5c);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x58, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x59, 0x14);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x5a, 0x02);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x5b, 0x2e);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x5c, 0x01);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x5d, 0x9a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x5e, 0x19);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x5f, 0x01);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x60, 0xbe);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x61, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x62, 0x0a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x63, 0x0c);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x64, 0x05);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x65, 0x0e);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x66, 0x05);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x67, 0xfd);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x68, 0x16);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x69, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x6a, 0x10);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x6b, 0xdc);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x6c, 0x07);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x6d, 0x10);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x6e, 0x20);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x6f, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x70, 0x06);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x71, 0x0f);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x72, 0x0f);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x73, 0x33);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x74, 0x0e);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x75, 0x1c);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x76, 0x2a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x77, 0x38);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x78, 0x46);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x79, 0x54);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x7a, 0x62);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x7b, 0x69);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x7c, 0x70);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x7d, 0x77);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x7e, 0x79);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x7f, 0x7b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x80, 0x7d);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x81, 0x7e);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x82, 0x01);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x83, 0xc2);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x84, 0x22);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x85, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x86, 0x2a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x87, 0x40);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x88, 0x32);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x89, 0xbe);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x8a, 0x3a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x8b, 0xfc);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x8c, 0x3a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x8d, 0xfa);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x8e, 0x3a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x8f, 0xf8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x90, 0x3b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x91, 0x38);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x92, 0x3b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x93, 0x78);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x94, 0x3b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x95, 0x76);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x96, 0x4b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x97, 0xb6);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x98, 0x4b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x99, 0xf6);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x9a, 0x4c);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x9b, 0x34);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x9c, 0x5c);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x9d, 0x74);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x9e, 0x8c);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x9f, 0xf4);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa2, 0x02);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa3, 0xba);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa4, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa5, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa6, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa7, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa9, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xaa, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa0, 0xa0);
++	/*
++	 * vendor timing@1 / timing-switch@1: 120fps black-line block.
++	 * Also used for 90Hz (BD=0x02). Skip on 60Hz (vendor timing-switch@0
++	 * has a different FE5A/5B set applied via rm692h0_timing_switch).
++	 */
++	if (hz > 75) {
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x5a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x49, 0x0f, 0x08, 0x04, 0x00, 0x06, 0x06, 0x06, 0x06, 0x06, 0x04);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x55, 0x10, 0x10);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x58, 0x05, 0x03);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x5e, 0x0f, 0x0f, 0x0f, 0x0a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x66, 0x10, 0x10, 0x10);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x6e, 0x05, 0x05);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x76, 0x05, 0x05);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x7e, 0x05, 0x05);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x92, 0x72, 0x45, 0x25);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x99, 0x7f, 0x40, 0x0f, 0x03);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x9e, 0x30, 0x10, 0x3d);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xa2, 0x1d, 0x09);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xa7, 0x27);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xa9, 0x27, 0x1a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xac, 0x04);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xb0, 0x20, 0x10, 0x0a, 0x0d, 0x03);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xb8, 0x12, 0x12, 0x0d, 0x03, 0x02);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xc0, 0x0e, 0x0e, 0x09, 0x03);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xc8, 0x0b, 0x0b, 0x07);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xea, 0x1f);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0xfe, 0x5b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x2b, 0x7a);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x2d, 0x45);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x2f, 0x32);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x31, 0x60, 0x1f, 0x60, 0x60, 0x60, 0x37, 0x18, 0x0f, 0x0a, 0x30, 0x30, 0x2b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x3d, 0x1f);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x3f, 0x0f, 0x07, 0x02, 0x01, 0x1b, 0x1b, 0x1b, 0x0e, 0x06, 0x02);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x4b, 0x13, 0x13, 0x0d, 0x09);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x50, 0x01);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x53, 0x12, 0x12, 0x0b, 0x05);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x58, 0x03);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x5c, 0x0b, 0x0d, 0x08, 0x04, 0x02);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x5c, 0x0b, 0x00, 0x08, 0x04, 0x02);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x64, 0x09, 0x09, 0x06, 0x02);
++	}
++	/* ST swire control */
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x40);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x24, 0x54);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa9, 0x14);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xad, 0xc8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa5, 0x20);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xac, 0x04);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xae, 0x70);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xaf, 0x4b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xb0, 0x4b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xb2, 0x4b);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xb3, 0x4f);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x26);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x1d, 0x26);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xa4, 0x1f);
++	/* 8.8 PVGH */
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x40);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x3a, 0xe8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x3b, 0xe8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x42);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x81, 0xe8);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x82, 0xe8);
++	/* init code */
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xc2, 0x08);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x36, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x35, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0x53, 0x20);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x39, 0x51, 0x00, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x60);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xae, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xb3, 0x00);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xb8, 0xff);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xba, 0xff);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xc7, 0xcb);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xc8, 0xcb);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xdb, 0xcb);
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xdc, 0xcb);
++
++	rm692h0_dcs_typed_write_seq_multi(dsi_ctx, 0x15, 0xfe, 0x00);
++	mipi_dsi_dcs_set_display_on_multi(dsi_ctx);
++	mipi_dsi_msleep(dsi_ctx, 20);
++}
++
++static int rm692h0_disable(struct drm_panel *panel)
++{
++	struct rm692h0_panel *ctx = to_rm692h0(panel);
++	struct mipi_dsi_device *dsi = ctx->dsi;
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = dsi };
++
++	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
++
++	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 20);
++	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++
++	return dsi_ctx.accum_err;
++}
++
++static int rm692h0_prepare(struct drm_panel *panel)
++{
++	struct rm692h0_panel *ctx = to_rm692h0(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++	struct drm_dsc_picture_parameter_set pps;
++	struct device *dev = &ctx->dsi->dev;
++	int ret;
++
++	ret = regulator_bulk_enable(ARRAY_SIZE(rm692h0_supplies), ctx->supplies);
++	if (ret < 0)
++		return ret;
++
++	/* s5an lesson: settle supplies before reset */
++	msleep(20);
++	rm692h0_reset(ctx);
++
++	ctx->cur_vrefresh = rm692h0_pending_hz(ctx);
++	rm692h0_on(&dsi_ctx, ctx->cur_vrefresh);
++	if (dsi_ctx.accum_err) {
++		dev_err(dev, "cerro: rm692h0 on accum_err=%d\n", dsi_ctx.accum_err);
++		goto err_on;
++	}
++
++	/* MIPI DSC PPS + enable compression (aligned with dsi_populate). */
++	ret = rm692h0_pack_pps(ctx, &pps);
++	if (ret) {
++		dev_err(dev, "cerro: rm692h0 prepare pack_pps failed %d\n", ret);
++		goto err_on;
++	}
++	mipi_dsi_picture_parameter_set_multi(&dsi_ctx, &pps);
++	mipi_dsi_compression_mode_ext_multi(&dsi_ctx, true,
++					    MIPI_DSI_COMPRESSION_DSC, 0);
++	mipi_dsi_msleep(&dsi_ctx, 28);
++
++	if (dsi_ctx.accum_err)
++		goto err_on;
++
++	ctx->prepared = true;
++	return 0;
++
++err_on:
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	regulator_bulk_disable(ARRAY_SIZE(rm692h0_supplies), ctx->supplies);
++	return dsi_ctx.accum_err ? dsi_ctx.accum_err : ret;
++}
++
++static int rm692h0_unprepare(struct drm_panel *panel)
++{
++	struct rm692h0_panel *ctx = to_rm692h0(panel);
++
++	if (!ctx->prepared)
++		return 0;
++
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	regulator_bulk_disable(ARRAY_SIZE(rm692h0_supplies), ctx->supplies);
++	ctx->prepared = false;
++	return 0;
++}
++
++/*
++ * prepare_prev_first: on-cmd/PPS run before host HS is fully up (s5al saw
++ * power_mode=0x00 without the re-kick). Re-kick sleep-out / display-on /
++ * PPS / compression after the host is enabled.
++ */
++static int rm692h0_enable(struct drm_panel *panel)
++{
++	struct rm692h0_panel *ctx = to_rm692h0(panel);
++	struct mipi_dsi_device *dsi = ctx->dsi;
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = dsi };
++	struct drm_dsc_picture_parameter_set pps;
++	struct device *dev = &dsi->dev;
++	u8 power_mode = 0xff;
++	int pm_ret, ret;
++
++	ret = rm692h0_timing_switch(ctx, rm692h0_pending_hz(ctx));
++	if (ret)
++		return ret;
++	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
++
++	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 20);
++
++	/* s5bt: non-inverted DCS brightness was confirmed visible. */
++	mipi_dsi_dcs_set_display_brightness_large(dsi, 3515);
++
++	ret = rm692h0_pack_pps(ctx, &pps);
++	if (ret) {
++		dev_err(dev, "cerro: rm692h0 enable pack_pps failed %d\n", ret);
++		return ret;
++	}
++	mipi_dsi_picture_parameter_set_multi(&dsi_ctx, &pps);
++	mipi_dsi_compression_mode_ext_multi(&dsi_ctx, true,
++					    MIPI_DSI_COMPRESSION_DSC, 0);
++	mipi_dsi_msleep(&dsi_ctx, 28);
++
++	pm_ret = mipi_dsi_dcs_get_power_mode(dsi, &power_mode);
++	dev_err(dev,
++		"cerro: rm692h0 enable power_mode=0x%02x ret=%d accum=%d (expect ~0x9c)\n",
++		power_mode, pm_ret, dsi_ctx.accum_err);
++
++	return dsi_ctx.accum_err;
++}
++
++static int rm692h0_get_modes(struct drm_panel *panel,
++			     struct drm_connector *connector)
++{
++	struct drm_display_mode *mode;
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(rm692h0_modes); i++) {
++		mode = drm_mode_duplicate(connector->dev, &rm692h0_modes[i]);
++		if (!mode)
++			return -ENOMEM;
++		drm_mode_set_name(mode);
++		drm_mode_probed_add(connector, mode);
++	}
++	connector->display_info.width_mm = 71;
++	connector->display_info.height_mm = 157;
++	connector->display_info.bpc = 10;
++	return ARRAY_SIZE(rm692h0_modes);
++}
++
++static enum drm_panel_orientation rm692h0_get_orientation(struct drm_panel *panel)
++{
++	return DRM_MODE_PANEL_ORIENTATION_LEFT_UP;
++}
++
++static const struct drm_panel_funcs rm692h0_funcs = {
++	.prepare = rm692h0_prepare,
++	.unprepare = rm692h0_unprepare,
++	.disable = rm692h0_disable,
++	.enable = rm692h0_enable,
++	.get_modes = rm692h0_get_modes,
++	.get_orientation = rm692h0_get_orientation,
++};
++
++/* s5bt: direct UI-to-DCS brightness, not the discarded inverted experiment. */
++static int rm692h0_bl_update_status(struct backlight_device *bl)
++{
++	struct mipi_dsi_device *dsi = bl_get_data(bl);
++	u16 brightness = backlight_get_brightness(bl);
++
++	int ret;
++
++	/* Final historical driver sends brightness in HS. */
++	dsi->mode_flags &= ~MIPI_DSI_MODE_LPM;
++	ret = mipi_dsi_dcs_set_display_brightness_large(dsi,
++						     clamp_val(brightness, 15, 3515));
++	dsi->mode_flags |= MIPI_DSI_MODE_LPM;
++	return ret;
++
++}
++
++static const struct backlight_ops rm692h0_bl_ops = {
++	.update_status = rm692h0_bl_update_status,
++};
++
++static struct backlight_device *
++rm692h0_create_backlight(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	const struct backlight_properties props = {
++		.type = BACKLIGHT_RAW,
++		.brightness = 3515,
++		.max_brightness = 3515,
++	};
++
++	return devm_backlight_device_register(dev, dev_name(dev), dev, dsi,
++					      &rm692h0_bl_ops, &props);
++}
++
++static int rm692h0_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct rm692h0_panel *ctx;
++	int ret;
++
++	ctx = devm_drm_panel_alloc(dev, struct rm692h0_panel, panel,
++				   &rm692h0_funcs, DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(ctx))
++		return PTR_ERR(ctx);
++
++	ret = devm_regulator_bulk_get_const(dev, ARRAY_SIZE(rm692h0_supplies),
++					    rm692h0_supplies, &ctx->supplies);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "failed to get supplies\n");
++
++	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
++	if (IS_ERR(ctx->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio),
++				     "failed to get reset gpio\n");
++
++	ctx->dsi = dsi;
++	mipi_dsi_set_drvdata(dsi, ctx);
++
++	/* CMD mode + DSC (vendor): no MIPI_DSI_MODE_VIDEO. */
++	dsi->lanes = 4;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS |
++			  MIPI_DSI_MODE_DSC_ALL_SLICES_IN_PKT;
++
++	ctx->dsc.dsc_version_major = 1;
++	ctx->dsc.dsc_version_minor = 1;
++	ctx->dsc.slice_height = 20;
++	ctx->dsc.slice_width = 558;
++	ctx->dsc.slice_count = 2;
++	ctx->dsc.bits_per_component = 10;
++	ctx->dsc.bits_per_pixel = 10 << 4;
++	ctx->dsc.block_pred_enable = true;
++	dsi->dsc = &ctx->dsc;
++
++	ctx->panel.prepare_prev_first = true;
++
++	ctx->panel.backlight = rm692h0_create_backlight(dsi);
++	if (IS_ERR(ctx->panel.backlight))
++		return dev_err_probe(dev, PTR_ERR(ctx->panel.backlight),
++				     "failed to create backlight\n");
++
++	drm_panel_add(&ctx->panel);
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		drm_panel_remove(&ctx->panel);
++		return dev_err_probe(dev, ret, "failed to attach to DSI host\n");
++	}
++
++	return 0;
++}
++
++static void rm692h0_remove(struct mipi_dsi_device *dsi)
++{
++	struct rm692h0_panel *ctx = mipi_dsi_get_drvdata(dsi);
++	int ret;
++
++	ret = mipi_dsi_detach(dsi);
++	if (ret < 0)
++		dev_err(&dsi->dev, "failed to detach from DSI host: %d\n", ret);
++	drm_panel_remove(&ctx->panel);
++}
++
++static const struct of_device_id rm692h0_of_match[] = {
++	{ .compatible = "raydium,rm692h0" },
++	{ .compatible = "zte,bf068-rm692h0" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, rm692h0_of_match);
++
++static struct mipi_dsi_driver rm692h0_driver = {
++	.probe = rm692h0_probe,
++	.remove = rm692h0_remove,
++	.driver = {
++		.name = "panel-raydium-rm692h0",
++		.of_match_table = rm692h0_of_match,
++	},
++};
++module_mipi_dsi_driver(rm692h0_driver);
++
++MODULE_AUTHOR("Cerro bring-up (reconstructed from .cursor session archive)");
++MODULE_DESCRIPTION("DRM driver for Raydium RM692H0 BF068 CMD+DSC panel (cerro)");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/media/platform/qcom/camss/camss-csid-gen2.c b/drivers/media/platform/qcom/camss/camss-csid-gen2.c
+index eadcb2f7e..a5b406cc8 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid-gen2.c
++++ b/drivers/media/platform/qcom/camss/camss-csid-gen2.c
+@@ -183,6 +183,7 @@ static void __csid_configure_rx(struct csid_device *csid,
+ 	val = (lane_cnt - 1) << CSI2_RX_CFG0_NUM_ACTIVE_LANES;
+ 	val |= phy->lane_assign << CSI2_RX_CFG0_DL0_INPUT_SEL;
+ 	val |= phy->csiphy_id << CSI2_RX_CFG0_PHY_NUM_SEL;
++	val |= csid->phy.phy_sel << CSI2_RX_CFG0_PHY_TYPE_SEL;
+ 	writel_relaxed(val, csid->base + CSID_CSI2_RX_CFG0);
+ 
+ 	val = 1 << CSI2_RX_CFG1_PACKET_ECC_CORRECTION_EN;
+diff --git a/drivers/media/platform/qcom/camss/camss-csid-gen3.c b/drivers/media/platform/qcom/camss/camss-csid-gen3.c
+index 0fdbf75fb..85d77b90b 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid-gen3.c
++++ b/drivers/media/platform/qcom/camss/camss-csid-gen3.c
+@@ -66,6 +66,7 @@
+ #define		CSI2_RX_CFG0_VC_MODE		3
+ #define		CSI2_RX_CFG0_DL0_INPUT_SEL	4
+ #define		CSI2_RX_CFG0_PHY_NUM_SEL	20
++#define		CSI2_RX_CFG0_PHY_TYPE_SEL	24
+ #define		CSI2_RX_CFG0_TPG_MUX_EN		BIT(27)
+ #define		CSI2_RX_CFG0_TPG_MUX_SEL	GENMASK(29, 28)
+ 
+@@ -116,6 +117,7 @@ static void __csid_configure_rx(struct csid_device *csid,
+ 	camss = csid->camss;
+ 	val = (phy->lane_cnt - 1) << CSI2_RX_CFG0_NUM_ACTIVE_LANES;
+ 	val |= phy->lane_assign << CSI2_RX_CFG0_DL0_INPUT_SEL;
++	val |= phy->phy_sel << CSI2_RX_CFG0_PHY_TYPE_SEL;
+ 
+ 	if (camss->tpg && csid->tpg_linked &&
+ 	    camss->tpg[phy->csiphy_id].testgen.mode != TPG_PAYLOAD_MODE_DISABLED) {
+diff --git a/drivers/media/platform/qcom/camss/camss-csid.c b/drivers/media/platform/qcom/camss/camss-csid.c
+index 48459b46a..353703a8d 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid.c
++++ b/drivers/media/platform/qcom/camss/camss-csid.c
+@@ -547,7 +547,7 @@ static int csid_set_clock_rates(struct csid_device *csid)
+ 	fmt = csid_get_fmt_entry(csid->res->formats->formats, csid->res->formats->nformats,
+ 				 csid->fmt[MSM_CSIPHY_PAD_SINK].code);
+ 	link_freq = camss_get_link_freq(&csid->subdev.entity, fmt->bpp,
+-					csid->phy.lane_cnt);
++		csid->phy.lane_cnt, csid->phy.phy_sel == CSID_PHY_SEL_CPHY);
+ 	if (link_freq < 0)
+ 		link_freq = 0;
+ 
+@@ -1291,6 +1291,11 @@ static int csid_link_setup(struct media_entity *entity,
+ 
+ 			lane_cfg = &csiphy->cfg.csi2->lane_cfg;
+ 			csid->phy.lane_cnt = lane_cfg->num_data;
++			if (lane_cfg->phy_cfg == V4L2_MBUS_CSI2_CPHY)
++				csid->phy.phy_sel = CSID_PHY_SEL_CPHY;
++			else
++				csid->phy.phy_sel = CSID_PHY_SEL_DPHY;
++
+ 			csid->phy.lane_assign = csid_get_lane_assign(lane_cfg, lane_cfg->num_data);
+ 			csid->tpg_linked = false;
+ 		}
+diff --git a/drivers/media/platform/qcom/camss/camss-csid.h b/drivers/media/platform/qcom/camss/camss-csid.h
+index 5296b10f6..e65590b0d 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid.h
++++ b/drivers/media/platform/qcom/camss/camss-csid.h
+@@ -44,6 +44,11 @@ enum csid_testgen_mode {
+ 	CSID_PAYLOAD_MODE_NUM_SUPPORTED_GEN2 = 9, /* excluding disabled */
+ };
+ 
++enum csid_phy_sel {
++	CSID_PHY_SEL_DPHY = 0,
++	CSID_PHY_SEL_CPHY = 1
++};
++
+ struct csid_format_info {
+ 	u32 code;
+ 	u8 data_type;
+@@ -70,6 +75,7 @@ struct csid_phy_config {
+ 	u32 lane_assign;
+ 	u32 en_vc;
+ 	u8 need_vc_update;
++	enum csid_phy_sel phy_sel;
+ };
+ 
+ struct csid_device;
+diff --git a/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c b/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
+index dac8d2ecf..0632095f7 100644
+--- a/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
++++ b/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
+@@ -14,6 +14,7 @@
+ #include <linux/delay.h>
+ #include <linux/interrupt.h>
+ #include <linux/io.h>
++#include <linux/media-bus-format.h>
+ 
+ #define CSIPHY_3PH_LNn_CFG1(n)			(0x000 + 0x100 * (n))
+ #define CSIPHY_3PH_LNn_CFG1_SWI_REC_DLY_PRG	(BIT(7) | BIT(6))
+@@ -49,6 +50,13 @@
+ #define CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(offset, common_status_offset, n) \
+ 	((offset) + (common_status_offset) + 0x4 * (n))
+ 
++#define CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(n) \
++	(0x0100 + ((n) * 0x4))
++#define CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(n) \
++	(0x0300 + ((n) * 0x4))
++#define CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(n) \
++	(0x0500 + ((n) * 0x4))
++
+ #define CSIPHY_DEFAULT_PARAMS		0
+ #define CSIPHY_LANE_ENABLE		1
+ #define CSIPHY_SETTLE_CNT_LOWER_BYTE	2
+@@ -145,6 +153,7 @@ csiphy_lane_regs lane_regs_sa8775p[] = {
+ };
+ 
+ /* GEN2 1.0 2PH */
++/* 5 entries: clock + 4 lanes */
+ static const struct
+ csiphy_lane_regs lane_regs_sdm845[] = {
+ 	{0x0004, 0x0C, 0x00, CSIPHY_DEFAULT_PARAMS},
+@@ -219,6 +228,71 @@ csiphy_lane_regs lane_regs_sdm845[] = {
+ 	{0x0664, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
+ };
+ 
++/* GEN2 1.0 3PH */
++/* 3 entries: 3 lanes (C-PHY) */
++static const struct
++csiphy_lane_regs lane_regs_sdm845_3ph[] = {
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(23), 0x63, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(26), 0xac, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(27), 0xa5, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(1),  0x06, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(3),  0x12, 0x00, CSIPHY_SETTLE_CNT_LOWER_BYTE},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(2),  0x00, 0x00, CSIPHY_SETTLE_CNT_HIGHER_BYTE},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(5),  0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(20), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(6),  0x3e, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(7),  0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(8),  0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(9),  0x7f, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(10), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(11), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(17), 0x12, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(24), 0x02, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(51), 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(25), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(55), 0x51, 0x00, CSIPHY_DEFAULT_PARAMS},
++
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(23), 0x63, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(26), 0xac, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(27), 0xa5, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(1),  0x06, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(3),  0x12, 0x00, CSIPHY_SETTLE_CNT_LOWER_BYTE},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(2),  0x00, 0x00, CSIPHY_SETTLE_CNT_HIGHER_BYTE},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(5),  0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(20), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(6),  0x3e, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(7),  0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(8),  0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(9),  0x7f, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(10), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(11), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(17), 0x12, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(24), 0x02, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(51), 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(25), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(55), 0x51, 0x00, CSIPHY_DEFAULT_PARAMS},
++
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(23), 0x63, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(26), 0xac, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(27), 0xa5, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(1),  0x06, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(3),  0x12, 0x00, CSIPHY_SETTLE_CNT_LOWER_BYTE},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(2),  0x00, 0x00, CSIPHY_SETTLE_CNT_HIGHER_BYTE},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(5),  0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(20), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(6),  0x3e, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(7),  0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(8),  0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(9),  0x7f, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(10), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(11), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(17), 0x12, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(24), 0x02, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(51), 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(25), 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(55), 0x51, 0x00, CSIPHY_DEFAULT_PARAMS},
++};
++
+ /* GEN2 1.1 2PH */
+ static const struct
+ csiphy_lane_regs lane_regs_sc8280xp[] = {
+@@ -1084,8 +1158,124 @@ static void csiphy_gen1_config_lanes(struct csiphy_device *csiphy,
+ 	writel_relaxed(val, csiphy->base + CSIPHY_3PH_LNn_MISC1(l));
+ }
+ 
++/* SM8650 CSIPHY v2.2.0: factory common and 3PH base plus the 2.5Gsps
++ * rate bucket selected for Cerro mode7 OPclk*10/3=4562300000 bits/s.
++ * Keep these separate from SDM845/sc7280 tables; no telephoto variant.
++ */
++static const struct csiphy_lane_regs lane_regs_sm8650_3ph[] = {
++	{0x1084, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x108C, 0x00, 0x01, CSIPHY_DEFAULT_PARAMS},
++	{0x101C, 0x7A, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x1018, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x02F4, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x02F8, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x02FC, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x02F0, 0xEF, 0xD3, CSIPHY_DEFAULT_PARAMS},
++	{0x06F4, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x06F8, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x06FC, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x06F0, 0xEF, 0xD3, CSIPHY_DEFAULT_PARAMS},
++	{0x0AF4, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0AF8, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0AFC, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0AF0, 0xEF, 0xD3, CSIPHY_DEFAULT_PARAMS},
++	{0x0204, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x02E4, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x02E8, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x02EC, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0218, 0x3E, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x021C, 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0220, 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0224, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0228, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x022C, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0264, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0244, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0310, 0x35, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x02BC, 0xD0, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0254, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0240, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0260, 0xA8, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0284, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0290, 0x02, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0604, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x06E4, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x06E8, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x06EC, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0618, 0x3E, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x061C, 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0620, 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0624, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0628, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x062C, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0664, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0644, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0710, 0x35, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x06BC, 0xD0, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0654, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0640, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0660, 0xA8, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0684, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0690, 0x02, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A04, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0AE4, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0AE8, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0AEC, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A18, 0x3E, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A1C, 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A20, 0x41, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A24, 0x7F, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A28, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A2C, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A64, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A44, 0xB2, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0B10, 0x35, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0ABC, 0xD0, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A54, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A40, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A60, 0xA8, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A84, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A90, 0x02, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0268, 0xF1, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0294, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0278, 0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0288, 0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x026C, 0x05, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x028C, 0x37, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0270, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0274, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0668, 0xF1, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0694, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0678, 0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0688, 0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x066C, 0x05, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x068C, 0x37, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0670, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0674, 0x03, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A68, 0xF1, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A94, 0x01, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A78, 0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A88, 0x20, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A6C, 0x05, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A8C, 0x37, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A70, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A74, 0x03, 0x0A, CSIPHY_DEFAULT_PARAMS},
++	{0x020C, 0x22, 0x00, CSIPHY_SETTLE_CNT_LOWER_BYTE},
++	{0x0208, 0x00, 0x00, CSIPHY_SETTLE_CNT_HIGHER_BYTE},
++	{0x0210, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0214, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x060C, 0x22, 0x00, CSIPHY_SETTLE_CNT_LOWER_BYTE},
++	{0x0608, 0x00, 0x00, CSIPHY_SETTLE_CNT_HIGHER_BYTE},
++	{0x0610, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0614, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A0C, 0x22, 0x00, CSIPHY_SETTLE_CNT_LOWER_BYTE},
++	{0x0A08, 0x00, 0x00, CSIPHY_SETTLE_CNT_HIGHER_BYTE},
++	{0x0A10, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++	{0x0A14, 0x00, 0x00, CSIPHY_DEFAULT_PARAMS},
++};
++
+ static void csiphy_gen2_config_lanes(struct csiphy_device *csiphy,
+-				     u8 settle_cnt)
++				     u16 settle_cnt)
+ {
+ 	const struct csiphy_lane_regs *r = csiphy->regs->lane_regs;
+ 	int i, array_size = csiphy->regs->lane_array_size;
+@@ -1096,6 +1286,9 @@ static void csiphy_gen2_config_lanes(struct csiphy_device *csiphy,
+ 		case CSIPHY_SETTLE_CNT_LOWER_BYTE:
+ 			val = settle_cnt & 0xff;
+ 			break;
++		case CSIPHY_SETTLE_CNT_HIGHER_BYTE:
++			val = (settle_cnt >> 8) & 0xff;
++			break;
+ 		case CSIPHY_SKEW_CAL:
+ 			/* TODO: support application of skew from dt flag */
+ 			continue;
+@@ -1113,13 +1306,22 @@ static void csiphy_gen2_config_lanes(struct csiphy_device *csiphy,
+ 
+ static u8 csiphy_get_lane_mask(struct csiphy_lanes_cfg *lane_cfg)
+ {
+-	u8 lane_mask;
+-	int i;
++	u8 lane_mask = 0;
++	u8 offset = 0;
+ 
+-	lane_mask = CSIPHY_3PH_CMN_CSI_COMMON_CTRL5_CLK_ENABLE;
++	switch (lane_cfg->phy_cfg) {
++	case V4L2_MBUS_CSI2_CPHY:
++		offset = 1;
++		break;
++	case V4L2_MBUS_CSI2_DPHY:
++		lane_mask = CSIPHY_3PH_CMN_CSI_COMMON_CTRL5_CLK_ENABLE;
++		break;
++	default:
++		break;
++	}
+ 
+-	for (i = 0; i < lane_cfg->num_data; i++)
+-		lane_mask |= 1 << lane_cfg->data[i].pos;
++	for (int i = 0; i < lane_cfg->num_data; i++)
++		lane_mask |= BIT((lane_cfg->data[i].pos * 2) + offset);
+ 
+ 	return lane_mask;
+ }
+@@ -1158,12 +1360,108 @@ static void csiphy_lanes_enable(struct csiphy_device *csiphy,
+ 	u8 val;
+ 	int i;
+ 
+-	settle_cnt = csiphy_settle_cnt_calc(link_freq, csiphy->timer_clk_rate);
++	switch (csiphy->camss->res->version) {
++	case CAMSS_845:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_sdm845[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sdm845);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = &lane_regs_sdm845_3ph[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sdm845_3ph);
++		}
++		break;
++	case CAMSS_2290:
++	case CAMSS_6150:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_qcm2290[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_qcm2290);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = NULL;
++			regs->lane_array_size = 0;
++		}
++		break;
++	case CAMSS_6350:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_sm6350[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sm6350);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = NULL;
++			regs->lane_array_size = 0;
++		}
++		break;
++	case CAMSS_7280:
++	case CAMSS_8250:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_sm8250[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sm8250);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = NULL;
++			regs->lane_array_size = 0;
++		}
++		break;
++	case CAMSS_8280XP:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_sc8280xp[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sc8280xp);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = NULL;
++			regs->lane_array_size = 0;
++		}
++		break;
++	case CAMSS_X1E80100:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_x1e80100[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_x1e80100);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = NULL;
++			regs->lane_array_size = 0;
++		}
++		break;
++	case CAMSS_8550:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_sm8550[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sm8550);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = NULL;
++			regs->lane_array_size = 0;
++		}
++		break;
++	case CAMSS_8650:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_sm8650[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sm8650);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = lane_regs_sm8650_3ph;
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sm8650_3ph);
++		}
++		break;
++	case CAMSS_8300:
++	case CAMSS_8775P:
++		if (c->phy_cfg == V4L2_MBUS_CSI2_DPHY) {
++			regs->lane_regs = &lane_regs_sa8775p[0];
++			regs->lane_array_size = ARRAY_SIZE(lane_regs_sa8775p);
++		} else if (c->phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++			regs->lane_regs = NULL;
++			regs->lane_array_size = 0;
++		}
++		break;
++	default:
++		break;
++	}
++
++	if (!regs->lane_regs)
++		WARN_ONCE(1, "Missing lane_regs definition!\n");
+ 
+-	val = CSIPHY_3PH_CMN_CSI_COMMON_CTRL5_CLK_ENABLE;
+-	for (i = 0; i < c->num_data; i++)
+-		val |= BIT(c->data[i].pos * 2);
++	/* Stock CreateCSIPHYConfig multiplies settleTimeNs by200000000,
++	 * and v2.2.0 divides by the same constant: mode7's register count is25.
++	 */
++	if (csiphy->camss->res->version == CAMSS_8650 &&
++	    c->phy_cfg == V4L2_MBUS_CSI2_CPHY)
++		settle_cnt = 25;
++	else
++		settle_cnt = csiphy_settle_cnt_calc(link_freq, csiphy->timer_clk_rate);
+ 
++	val = csiphy_get_lane_mask(c);
+ 	writel_relaxed(val, csiphy->base +
+ 		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 5));
+ 
+@@ -1175,9 +1473,12 @@ static void csiphy_lanes_enable(struct csiphy_device *csiphy,
+ 	writel_relaxed(val, csiphy->base +
+ 		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 7));
+ 
+-	val = 0x00;
++	val = csiphy->camss->res->version == CAMSS_8650 &&
++	      c->phy_cfg == V4L2_MBUS_CSI2_CPHY ? 0x0e : 0x00;
+ 	writel_relaxed(val, csiphy->base +
+ 		       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 0));
++	if (val == 0x0e)
++		usleep_range(3048, 3100);
+ 
+ 	if (csiphy_is_gen2(csiphy->camss->res->version))
+ 		csiphy_gen2_config_lanes(csiphy, settle_cnt);
+@@ -1213,53 +1514,16 @@ static int csiphy_init(struct csiphy_device *csiphy)
+ 		return -ENOMEM;
+ 
+ 	csiphy->regs = regs;
+-	regs->offset = 0x800;
+ 	regs->common_status_offset = 0xb0;
+ 
+ 	switch (csiphy->camss->res->version) {
+-	case CAMSS_845:
+-		regs->lane_regs = &lane_regs_sdm845[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_sdm845);
+-		break;
+-	case CAMSS_2290:
+-	case CAMSS_6150:
+-		regs->lane_regs = &lane_regs_qcm2290[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_qcm2290);
+-		break;
+-	case CAMSS_6350:
+-		regs->lane_regs = &lane_regs_sm6350[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_sm6350);
+-		break;
+-	case CAMSS_7280:
+-	case CAMSS_8250:
+-		regs->lane_regs = &lane_regs_sm8250[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_sm8250);
+-		break;
+-	case CAMSS_8280XP:
+-		regs->lane_regs = &lane_regs_sc8280xp[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_sc8280xp);
+-		break;
+ 	case CAMSS_X1E80100:
+-		regs->lane_regs = &lane_regs_x1e80100[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_x1e80100);
+-		regs->offset = 0x1000;
+-		break;
+ 	case CAMSS_8550:
+-		regs->lane_regs = &lane_regs_sm8550[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_sm8550);
+-		regs->offset = 0x1000;
+-		break;
+ 	case CAMSS_8650:
+-		regs->lane_regs = &lane_regs_sm8650[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_sm8650);
+ 		regs->offset = 0x1000;
+ 		break;
+-	case CAMSS_8300:
+-	case CAMSS_8775P:
+-		regs->lane_regs = &lane_regs_sa8775p[0];
+-		regs->lane_array_size = ARRAY_SIZE(lane_regs_sa8775p);
+-		break;
+ 	default:
++		regs->offset = 0x800;
+ 		break;
+ 	}
+ 
+diff --git a/drivers/media/platform/qcom/camss/camss-csiphy.c b/drivers/media/platform/qcom/camss/camss-csiphy.c
+index 539ac4888..85c9174b9 100644
+--- a/drivers/media/platform/qcom/camss/camss-csiphy.c
++++ b/drivers/media/platform/qcom/camss/camss-csiphy.c
+@@ -145,7 +145,8 @@ static int csiphy_set_clock_rates(struct csiphy_device *csiphy)
+ 				csiphy->fmt[MSM_CSIPHY_PAD_SINK].code);
+ 	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
+ 
+-	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes);
++	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes,
++		csiphy->cfg.csi2->lane_cfg.phy_cfg == V4L2_MBUS_CSI2_CPHY);
+ 	if (link_freq < 0)
+ 		link_freq  = 0;
+ 
+@@ -153,7 +154,19 @@ static int csiphy_set_clock_rates(struct csiphy_device *csiphy)
+ 		struct camss_clock *clock = &csiphy->clock[i];
+ 
+ 		if (csiphy->rate_set[i]) {
+-			u64 min_rate = link_freq / 4;
++			u64 min_rate;
++
++			/* v2.2.0 stock C-PHY vote is per-trio bit rate/32. */
++			if (csiphy->camss->res->version == CAMSS_8650 &&
++			    csiphy->cfg.csi2->lane_cfg.phy_cfg == V4L2_MBUS_CSI2_CPHY) {
++				/* Audited Cerro mode7 and mode1 OP PLL clocks. */
++				if (link_freq != 998000000LL &&
++				    link_freq != 1000000000LL)
++					return -EINVAL;
++				min_rate = div_u64((u64)link_freq * 2 * 16, 7 * 32);
++			} else {
++				min_rate = link_freq / 4;
++			}
+ 			long round_rate;
+ 
+ 			camss_add_clock_margin(&min_rate);
+@@ -272,7 +285,8 @@ static int csiphy_stream_on(struct csiphy_device *csiphy)
+ 	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
+ 	u8 val;
+ 
+-	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes);
++	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes,
++		csiphy->cfg.csi2->lane_cfg.phy_cfg == V4L2_MBUS_CSI2_CPHY);
+ 
+ 	if (link_freq < 0) {
+ 		dev_err(csiphy->camss->dev,
+diff --git a/drivers/media/platform/qcom/camss/camss-csiphy.h b/drivers/media/platform/qcom/camss/camss-csiphy.h
+index 9d9657b82..2ebb307be 100644
+--- a/drivers/media/platform/qcom/camss/camss-csiphy.h
++++ b/drivers/media/platform/qcom/camss/camss-csiphy.h
+@@ -30,11 +30,13 @@ struct csiphy_lane {
+ 
+ /**
+  * struct csiphy_lanes_cfg - CSIPHY lanes configuration
++ * @phy_cfg:  interface selection (C-PHY or D-PHY)
+  * @num_data: number of data lanes
+  * @data:     data lanes configuration
+  * @clk:      clock lane configuration (only for D-PHY)
+  */
+ struct csiphy_lanes_cfg {
++	enum v4l2_mbus_type phy_cfg;
+ 	int num_data;
+ 	struct csiphy_lane *data;
+ 	struct csiphy_lane clk;
+diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/qcom/camss/camss.c
+index 2123f6388..bd9792274 100644
+--- a/drivers/media/platform/qcom/camss/camss.c
++++ b/drivers/media/platform/qcom/camss/camss.c
+@@ -4628,7 +4628,7 @@ struct media_pad *camss_find_sensor_pad(struct media_entity *entity)
+  * Return link frequency on success or a negative error code otherwise
+  */
+ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
+-			unsigned int lanes)
++			unsigned int lanes, bool cphy)
+ {
+ 	struct media_pad *sensor_pad;
+ 
+@@ -4636,7 +4636,9 @@ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
+ 	if (!sensor_pad)
+ 		return -ENODEV;
+ 
+-	return v4l2_get_link_freq(sensor_pad, bpp, 2 * lanes);
++	/* V4L2 link frequency is a clock, two symbols/cycle; C-PHY16/7. */
++	return v4l2_get_link_freq(sensor_pad, bpp * 16,
++				 2 * lanes * (cphy ? 7 : 16));
+ }
+ 
+ /*
+@@ -4758,7 +4760,8 @@ static int camss_parse_endpoint_node(struct device *dev,
+ 	 * Most SoCs support both D-PHY and C-PHY standards, but currently only
+ 	 * D-PHY is supported in the driver.
+ 	 */
+-	if (vep.bus_type != V4L2_MBUS_CSI2_DPHY) {
++	if (vep.bus_type != V4L2_MBUS_CSI2_DPHY &&
++	    vep.bus_type != V4L2_MBUS_CSI2_CPHY) {
+ 		dev_err(dev, "Unsupported bus type %d\n", vep.bus_type);
+ 		return -EINVAL;
+ 	}
+@@ -4766,9 +4769,13 @@ static int camss_parse_endpoint_node(struct device *dev,
+ 	csd->interface.csiphy_id = vep.base.port;
+ 
+ 	mipi_csi2 = &vep.bus.mipi_csi2;
+-	lncfg->clk.pos = mipi_csi2->clock_lane;
+-	lncfg->clk.pol = mipi_csi2->lane_polarities[0];
+ 	lncfg->num_data = mipi_csi2->num_data_lanes;
++	lncfg->phy_cfg = vep.bus_type;
++
++	if (lncfg->phy_cfg != V4L2_MBUS_CSI2_CPHY) {
++		lncfg->clk.pos = mipi_csi2->clock_lane;
++		lncfg->clk.pol = mipi_csi2->lane_polarities[0];
++	}
+ 
+ 	lncfg->data = devm_kcalloc(dev,
+ 				   lncfg->num_data, sizeof(*lncfg->data),
+diff --git a/drivers/media/platform/qcom/camss/camss.h b/drivers/media/platform/qcom/camss/camss.h
+index 93d691c8a..15b6cdc5d 100644
+--- a/drivers/media/platform/qcom/camss/camss.h
++++ b/drivers/media/platform/qcom/camss/camss.h
+@@ -169,7 +169,7 @@ int camss_enable_clocks(int nclocks, struct camss_clock *clock,
+ void camss_disable_clocks(int nclocks, struct camss_clock *clock);
+ struct media_pad *camss_find_sensor_pad(struct media_entity *entity);
+ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
+-			unsigned int lanes);
++			unsigned int lanes, bool cphy);
+ int camss_get_pixel_clock(struct media_entity *entity, u64 *pixel_clock);
+ int camss_pm_domain_on(struct camss *camss, int id);
+ void camss_pm_domain_off(struct camss *camss, int id);
+diff --git a/drivers/net/ipa/data/ipa_data-v5.5.c b/drivers/net/ipa/data/ipa_data-v5.5.c
+index 741ae21d9..43a9eba64 100644
+--- a/drivers/net/ipa/data/ipa_data-v5.5.c
++++ b/drivers/net/ipa/data/ipa_data-v5.5.c
+@@ -135,7 +135,10 @@ static const struct ipa_gsi_endpoint_data ipa_gsi_endpoint_data[] = {
+ 	[IPA_ENDPOINT_AP_MODEM_RX] = {
+ 		.ee_id		= GSI_EE_AP,
+ 		.channel_id	= 1,
+-		.endpoint_id	= 23,
++		/* Aurora IPA v5.5 APPS_WAN_CONS is EP 24 / GSI ch 1.
++		 * EP 23 is WAN_COAL on this generation; v5.0's 23 was copied forward.
++		 */
++		.endpoint_id	= 24,
+ 		.toward_ipa	= false,
+ 		.channel = {
+ 			.tre_count	= 256,
+@@ -168,7 +171,8 @@ static const struct ipa_gsi_endpoint_data ipa_gsi_endpoint_data[] = {
+ 	[IPA_ENDPOINT_MODEM_AP_RX] = {
+ 		.ee_id		= GSI_EE_MODEM,
+ 		.channel_id	= 7,
+-		.endpoint_id	= 21,
++		/* Aurora IPA v5.5 Q6_WAN_CONS is EP 22 / GSI ch 7 (v5.0 was 21). */
++		.endpoint_id	= 22,
+ 		.toward_ipa	= false,
+ 	},
+ 	[IPA_ENDPOINT_MODEM_DL_NLO_TX] = {
+diff --git a/drivers/net/ipa/ipa_endpoint.c b/drivers/net/ipa/ipa_endpoint.c
+index 0bd9b9fbb..34c1d1946 100644
+--- a/drivers/net/ipa/ipa_endpoint.c
++++ b/drivers/net/ipa/ipa_endpoint.c
+@@ -521,6 +521,7 @@ static void ipa_endpoint_force_close(struct ipa_endpoint *endpoint)
+ 	iowrite32(mask, ipa->reg_virt + reg_n_offset(reg, unit));
+ }
+ 
++
+ /**
+  * ipa_endpoint_suspend_aggr() - Emulate suspend interrupt
+  * @endpoint:	Endpoint on which to emulate a suspend
+diff --git a/drivers/net/ipa/ipa_endpoint.h b/drivers/net/ipa/ipa_endpoint.h
+index e7d8ae6c6..637c51c03 100644
+--- a/drivers/net/ipa/ipa_endpoint.h
++++ b/drivers/net/ipa/ipa_endpoint.h
+@@ -204,4 +204,5 @@ void ipa_endpoint_trans_complete(struct ipa_endpoint *endpoint,
+ void ipa_endpoint_trans_release(struct ipa_endpoint *endpoint,
+ 				struct gsi_trans *trans);
+ 
++
+ #endif /* _IPA_ENDPOINT_H_ */
+diff --git a/drivers/net/ipa/ipa_modem.c b/drivers/net/ipa/ipa_modem.c
+index 9b136f6b8..333a1a837 100644
+--- a/drivers/net/ipa/ipa_modem.c
++++ b/drivers/net/ipa/ipa_modem.c
+@@ -98,6 +98,7 @@ static int ipa_stop(struct net_device *netdev)
+ 
+ 	netif_stop_queue(netdev);
+ 
++
+ 	ipa_endpoint_disable_one(priv->rx);
+ 	ipa_endpoint_disable_one(priv->tx);
+ out_power_put:
+diff --git a/drivers/net/ipa/ipa_qmi.c b/drivers/net/ipa/ipa_qmi.c
+index d771f3a71..9082cd4c5 100644
+--- a/drivers/net/ipa/ipa_qmi.c
++++ b/drivers/net/ipa/ipa_qmi.c
+@@ -380,7 +380,7 @@ init_modem_driver_req(struct ipa_qmi *ipa_qmi)
+ 			req.hw_stats_quota_base_addr =
+ 				ipa->mem_offset + mem->offset;
+ 			req.hw_stats_quota_size_valid = 1;
+-			req.hw_stats_quota_size = ipa->mem_offset + mem->size;
++			req.hw_stats_quota_size = mem->size; /* cerro: was wrongly mem_offset+size */
+ 		}
+ 
+ 		/* If the DROP stats region is defined, include it */
+@@ -390,7 +390,7 @@ init_modem_driver_req(struct ipa_qmi *ipa_qmi)
+ 			req.hw_stats_drop_base_addr =
+ 				ipa->mem_offset + mem->offset;
+ 			req.hw_stats_drop_size_valid = 1;
+-			req.hw_stats_drop_size = ipa->mem_offset + mem->size;
++			req.hw_stats_drop_size = mem->size; /* cerro: was wrongly mem_offset+size */
+ 		}
+ 	}
+ 
+diff --git a/drivers/net/wireless/ath/ath12k/Kconfig b/drivers/net/wireless/ath/ath12k/Kconfig
+index 4a2b240f9..e90f4b58b 100644
+--- a/drivers/net/wireless/ath/ath12k/Kconfig
++++ b/drivers/net/wireless/ath/ath12k/Kconfig
+@@ -6,7 +6,7 @@ config ATH12K
+ 	select MHI_BUS
+ 	select QRTR
+ 	select QRTR_MHI
+-	select PCI_PWRCTRL_PWRSEQ if HAVE_PWRCTRL
++	imply PCI_PWRCTRL_PWRSEQ if HAVE_PWRCTRL
+ 	help
+ 	  Enable support for Qualcomm Technologies Wi-Fi 7 (IEEE
+ 	  802.11be) family of chipsets, for example WCN7850 and
+diff --git a/drivers/pci/controller/dwc/pcie-qcom.c b/drivers/pci/controller/dwc/pcie-qcom.c
+index d8eb52857..55cd914a1 100644
+--- a/drivers/pci/controller/dwc/pcie-qcom.c
++++ b/drivers/pci/controller/dwc/pcie-qcom.c
+@@ -116,6 +116,12 @@
+ #define PHY_REFCLK_SSP_EN			BIT(16)
+ #define PHY_REFCLK_USE_PAD			BIT(12)
+ 
++/* s5eo: pineapple/cerro PARF CESTA CLKREQ mux. Keep SEL with the CRM D0 vote. */
++#define PARF_CESTA_CLKREQ_CFG			0x2c48
++#define PARF_CESTA_CLKREQ_SEL			BIT(0)
++#define PARF_CESTA_L1SUB_TIMEOUT_EXT_INT_EN	BIT(3)
++
++
+ /* PARF_CONFIG_BITS register fields */
+ #define PHY_RX0_EQ(x)				FIELD_PREP(GENMASK(26, 24), x)
+ 
+@@ -665,10 +671,377 @@ static int qcom_pcie_post_init_1_0_0(struct qcom_pcie *pcie)
+ 	return 0;
+ }
+ 
++/*
++ * Cerro s5ej/s5ek: AOSP module_param
++ *   pci-msm-drv.pcie_sm_regs=0x1D07000,0x1040,0x1048,0x3000,0x2
++ * = BASE, PWR_CTRL_OFF, PWR_MASK_OFF, INSTANCE_STRIDE, NUM_INSTANCES.
++ * Early override: PWR_CTRL/MASK=1 per instance (s5ej — still DNF).
++ * s5ek: also load qcom,pcie-sm-seq / branch-seq from cerro downstream DT
++ * (vb_00 pcie0) then clear overrides and set SM start bit — mirrors
++ * msm_pcie_cesta_load_sm_seq() before LTSSM_EN.
++ */
++#define CERRO_PCIE_SM_PHYS		0x1d07000UL
++#define CERRO_PCIE_SM_SIZE		0x7000
++#define CERRO_PCIE_SM_PWR_CTRL		0x1040
++#define CERRO_PCIE_SM_PWR_MASK		0x1048
++#define CERRO_PCIE_SM_INST_STRIDE	0x3000
++#define CERRO_PCIE_SM_NUM_INST		2
++#define CERRO_PCIE_SM_BRANCH_OFF		0x1000
++#define CERRO_PCIE_SM_START_OFF		0x1090
++
++/* AOSP pineapple crm@1d01000 — minimal MMIO path (no full crm.o) */
++#define CERRO_PCIE_CRM_PHYS		0x1d01000UL
++#define CERRO_PCIE_CRM_SIZE		0x3000
++#define CERRO_PCIE_CRMC_PHYS		0x1d05000UL
++#define CERRO_PCIE_CRMC_SIZE		0x2000
++#define CERRO_PCIE_PHY_PHYS		0x1c06000UL
++#define CERRO_PCIE_PHY_SIZE		0x2000
++#define CERRO_PCIE_PHY_STATUS_OFF	0x214
++#define CERRO_PCIE_PHY_STATUS_BIT	BIT(6)
++
++/* PERF_LVL_GEN4 after msm_pcie_cesta_map_save(Gen4): gen + L1SS = 5 */
++#define CERRO_CESTA_PERF_GEN4		5
++
++static const u32 cerro_pcie_sm_seq[] = {
++	0x1c018081, 0x70074002, 0x50028000, 0x28007003,
++	0x80804002, 0x70021c01, 0x18001802, 0x70005000,
++	0x10004000, 0x80814002, 0x18001c01, 0x1c018080,
++	0x100,
++};
++
++static const u32 cerro_pcie_sm_branch_seq[] = {
++	0x04, 0x1c, 0x24, 0x2c, 0x00, 0x00, 0x00,
++};
++
++static const u32 cerro_pcie_phy_seq[][3] = {
++	{ 0x0240, 0x0003, 0 },
++	{ 0x00c0, 0x0001, 0 },
++	{ 0x00cc, 0x0062, 0 },
++	{ 0x00d0, 0x0002, 0 },
++	{ 0x0060, 0x00f8, 0 },
++	{ 0x0064, 0x0001, 0 },
++	{ 0x0000, 0x0093, 0 },
++	{ 0x0004, 0x0001, 0 },
++	{ 0x00e0, 0x0090, 0 },
++	{ 0x00e4, 0x0082, 0 },
++	{ 0x00f4, 0x0007, 0 },
++	{ 0x0070, 0x0002, 0 },
++	{ 0x0010, 0x0002, 0 },
++	{ 0x0074, 0x0016, 0 },
++	{ 0x0014, 0x0016, 0 },
++	{ 0x0078, 0x0036, 0 },
++	{ 0x0018, 0x0036, 0 },
++	{ 0x0110, 0x0008, 0 },
++	{ 0x00bc, 0x000a, 0 },
++	{ 0x0120, 0x0042, 0 },
++	{ 0x0080, 0x0004, 0 },
++	{ 0x0084, 0x000d, 0 },
++	{ 0x0020, 0x000a, 0 },
++	{ 0x0024, 0x001a, 0 },
++	{ 0x0088, 0x0041, 0 },
++	{ 0x0028, 0x0034, 0 },
++	{ 0x0090, 0x00ab, 0 },
++	{ 0x0094, 0x00aa, 0 },
++	{ 0x0098, 0x0001, 0 },
++	{ 0x0030, 0x0055, 0 },
++	{ 0x0034, 0x0055, 0 },
++	{ 0x0038, 0x0001, 0 },
++	{ 0x0140, 0x0014, 0 },
++	{ 0x0164, 0x0034, 0 },
++	{ 0x003c, 0x0001, 0 },
++	{ 0x001c, 0x0004, 0 },
++	{ 0x0174, 0x0016, 0 },
++	{ 0x01bc, 0x000f, 0 },
++	{ 0x0170, 0x00a0, 0 },
++	{ 0x11a4, 0x0038, 0 },
++	{ 0x10dc, 0x0011, 0 },
++	{ 0x1160, 0x00bf, 0 },
++	{ 0x1164, 0x00bf, 0 },
++	{ 0x1168, 0x00b7, 0 },
++	{ 0x116c, 0x00ea, 0 },
++	{ 0x115c, 0x003f, 0 },
++	{ 0x1174, 0x005c, 0 },
++	{ 0x1178, 0x009c, 0 },
++	{ 0x117c, 0x001a, 0 },
++	{ 0x1180, 0x0089, 0 },
++	{ 0x1170, 0x00dc, 0 },
++	{ 0x1188, 0x0094, 0 },
++	{ 0x118c, 0x005b, 0 },
++	{ 0x1190, 0x001a, 0 },
++	{ 0x1194, 0x0089, 0 },
++	{ 0x10cc, 0x0000, 0 },
++	{ 0x1008, 0x0009, 0 },
++	{ 0x1014, 0x0005, 0 },
++	{ 0x104c, 0x0008, 0 },
++	{ 0x1050, 0x0008, 0 },
++	{ 0x10d8, 0x000f, 0 },
++	{ 0x1118, 0x001c, 0 },
++	{ 0x10f8, 0x0007, 0 },
++	{ 0x11f8, 0x0008, 0 },
++	{ 0x1600, 0x0000, 0 },
++	{ 0x0e84, 0x0015, 0 },
++	{ 0x0e90, 0x003f, 0 },
++	{ 0x0ee4, 0x0002, 0 },
++	{ 0x0e40, 0x0009, 0 },
++	{ 0x0e3c, 0x0015, 0 },
++	{ 0x19a4, 0x0038, 0 },
++	{ 0x18dc, 0x0011, 0 },
++	{ 0x1960, 0x00bf, 0 },
++	{ 0x1964, 0x00bf, 0 },
++	{ 0x1968, 0x00b7, 0 },
++	{ 0x196c, 0x00ea, 0 },
++	{ 0x195c, 0x003f, 0 },
++	{ 0x1974, 0x005c, 0 },
++	{ 0x1978, 0x009c, 0 },
++	{ 0x197c, 0x001a, 0 },
++	{ 0x1980, 0x0089, 0 },
++	{ 0x1970, 0x00dc, 0 },
++	{ 0x1988, 0x0094, 0 },
++	{ 0x198c, 0x005b, 0 },
++	{ 0x1990, 0x001a, 0 },
++	{ 0x1994, 0x0089, 0 },
++	{ 0x18cc, 0x0000, 0 },
++	{ 0x1808, 0x0009, 0 },
++	{ 0x1814, 0x0005, 0 },
++	{ 0x184c, 0x0008, 0 },
++	{ 0x1850, 0x0008, 0 },
++	{ 0x18d8, 0x000f, 0 },
++	{ 0x1918, 0x001c, 0 },
++	{ 0x18f8, 0x0007, 0 },
++	{ 0x19f8, 0x0008, 0 },
++	{ 0x1684, 0x0015, 0 },
++	{ 0x1690, 0x003f, 0 },
++	{ 0x16e4, 0x0002, 0 },
++	{ 0x1640, 0x0009, 0 },
++	{ 0x163c, 0x0015, 0 },
++	{ 0x02dc, 0x0005, 0 },
++	{ 0x0388, 0x0077, 0 },
++	{ 0x0398, 0x000b, 0 },
++	{ 0x06a4, 0x001e, 0 },
++	{ 0x06f4, 0x0027, 0 },
++	{ 0x03e0, 0x000f, 0 },
++	{ 0x060c, 0x001d, 0 },
++	{ 0x0614, 0x0007, 0 },
++	{ 0x0620, 0x00c1, 0 },
++	{ 0x0694, 0x0000, 0 },
++	{ 0x03d0, 0x008c, 0 },
++	{ 0x0368, 0x0017, 0 },
++	{ 0x0370, 0x002e, 0 },
++	{ 0x0200, 0x0000, 0 },
++	{ 0x0244, 0x0003, 0 },
++};
++
++static void cerro_pcie_enable_cesta_parf(struct qcom_pcie *pcie)
++{
++	u32 val, nval;
++
++	val = readl(pcie->parf + PARF_CESTA_CLKREQ_CFG);
++	nval = val | PARF_CESTA_CLKREQ_SEL | PARF_CESTA_L1SUB_TIMEOUT_EXT_INT_EN;
++	writel(nval, pcie->parf + PARF_CESTA_CLKREQ_CFG);
++	dev_info(pcie->pci->dev,
++		 "cerro: PARF_CESTA_CLKREQ_CFG 0x%x -> 0x%x (SEL+L1TO)\n",
++		 val, readl(pcie->parf + PARF_CESTA_CLKREQ_CFG));
++}
++
++/*
++ * Minimal CRM HW-DRV0 → CESTA D0 vote matching AOSP
++ * msm_pcie_enable_cesta() / msm_pcie_cesta_map_apply(D0_STATE).
++ * Offsets from AOSP drivers/soc/qcom/crm.c (qcom,pcie-crm).
++ */
++static int cerro_pcie_crm_d0(struct qcom_pcie *pcie)
++{
++	void __iomem *base, *crmc;
++	u32 crm_en, crm_cfg, num_ch, num_pwr, num_perf;
++	u32 chn_update, ch, drv_id = 0;
++	u32 pwr_off[2] = { 0x0, 0x40 }; /* PWR_ST0 / PWR_ST1 */
++	u32 res, j, offset, sts;
++	int retry, ret = 0;
++
++	base = ioremap(CERRO_PCIE_CRM_PHYS, CERRO_PCIE_CRM_SIZE);
++	if (!base) {
++		dev_err(pcie->pci->dev, "cerro: CRM ioremap failed\n");
++		return -ENOMEM;
++	}
++
++	crm_en = readl(base + 0xc);
++	if (!crm_en) {
++		dev_err(pcie->pci->dev, "cerro: CRM_ENABLE=0 — skip D0 vote\n");
++		iounmap(base);
++		return -ENODEV;
++	}
++
++	crm_cfg = readl(base + 0x4);
++	num_ch = (crm_cfg >> 4) & 0xf;
++	num_pwr = crm_cfg & 0xf;
++	num_perf = (crm_cfg >> 8) & 0xf;
++	dev_info(pcie->pci->dev,
++		 "cerro: CRM en=0x%x cfg=0x%x ch=%u pwr=%u perf_vcd=%u\n",
++		 crm_en, crm_cfg, num_ch, num_pwr, num_perf);
++
++	if (!num_ch || !num_perf) {
++		dev_err(pcie->pci->dev, "cerro: CRM cfg looks empty\n");
++		iounmap(base);
++		return -EINVAL;
++	}
++
++	/* Select free channel (CHN_UPDATE @ 0x1020 + drv*4) */
++	chn_update = readl(base + 0x1020 + drv_id * 4);
++	if (!chn_update)
++		ch = 0;
++	else if (chn_update & BIT(0))
++		ch = 1;
++	else if (chn_update & BIT(1))
++		ch = 0;
++	else {
++		dev_err(pcie->pci->dev, "cerro: CRM no free channel (upd=0x%x)\n",
++			chn_update);
++		iounmap(base);
++		return -EBUSY;
++	}
++
++	/*
++	 * PERF_OL VCD: DRV_BASE=0x200, DRV_DISTANCE=0x200,
++	 * DRV_RESOURCE_DISTANCE=0x4, PWR_ST_CHN_DISTANCE=0x4
++	 * Vote GEN4 for every PERF resource so sibling RCDs are not left D3.
++	 * Only POWER_STATE_0/1 are used by AOSP MAX_POWER_STATE.
++	 */
++	for (res = 0; res < num_perf; res++) {
++		for (j = 0; j < 2 && j < num_pwr; j++) {
++			offset = 0x200 + drv_id * 0x200;
++			offset += pwr_off[j];
++			offset += ch * num_perf * 4;
++			offset += res * 4;
++			writel(CERRO_CESTA_PERF_GEN4, base + offset);
++		}
++	}
++	wmb();
++
++	/* Channel switch */
++	writel(BIT(ch), base + 0x1020 + drv_id * 4);
++	retry = 100;
++	do {
++		sts = readl(base + 0x1000 + drv_id * 4);
++		if (ch == 0)
++			sts &= BIT(0);
++		else
++			sts &= BIT(1);
++		udelay(100);
++	} while (sts != BIT(ch) && --retry);
++
++	if (!retry) {
++		dev_err(pcie->pci->dev,
++			"cerro: CRM channel switch timeout ch=%u busy=0x%x\n",
++			ch, readl(base + 0x1000 + drv_id * 4));
++		ret = -EBUSY;
++	}
++
++	crmc = ioremap(CERRO_PCIE_CRMC_PHYS, CERRO_PCIE_CRMC_SIZE);
++	if (crmc) {
++		/* CURR_PERF_OL for resource 0 @ crmc + 0xc */
++		dev_info(pcie->pci->dev,
++			 "cerro: CRM D0 ch=%u curr_perf_ol[0]=0x%x aggr=0x%x\n",
++			 ch, readl(crmc + 0xc), readl(crmc + 0x4));
++		iounmap(crmc);
++	} else {
++		dev_info(pcie->pci->dev, "cerro: CRM D0 ch=%u (crmc map fail)\n",
++			 ch);
++	}
++
++	iounmap(base);
++	return ret;
++}
++
++static void cerro_pcie_apply_phy_seq(struct qcom_pcie *pcie)
++{
++	void __iomem *phy;
++	unsigned int i;
++	u32 sts;
++	int retry = 1000;
++
++	phy = ioremap(CERRO_PCIE_PHY_PHYS, CERRO_PCIE_PHY_SIZE);
++	if (!phy) {
++		dev_err(pcie->pci->dev, "cerro: PHY ioremap failed\n");
++		return;
++	}
++
++	for (i = 0; i < ARRAY_SIZE(cerro_pcie_phy_seq); i++) {
++		writel(cerro_pcie_phy_seq[i][1],
++		       phy + cerro_pcie_phy_seq[i][0]);
++		if (cerro_pcie_phy_seq[i][2])
++			usleep_range(cerro_pcie_phy_seq[i][2],
++				     cerro_pcie_phy_seq[i][2] + 1);
++	}
++	wmb();
++	usleep_range(1000, 1500);
++
++	do {
++		sts = readl(phy + CERRO_PCIE_PHY_STATUS_OFF);
++		if (sts & CERRO_PCIE_PHY_STATUS_BIT)
++			break;
++		usleep_range(1000, 1500);
++	} while (--retry);
++
++	dev_info(pcie->pci->dev,
++		 "cerro: phy-seq %zu applied status@0x214=0x%x %s\n",
++		 ARRAY_SIZE(cerro_pcie_phy_seq), sts,
++		 (sts & CERRO_PCIE_PHY_STATUS_BIT) ? "ready" : "NOT-ready");
++	iounmap(phy);
++}
++
++static void cerro_pcie_sm_init(struct qcom_pcie *pcie)
++{
++	void __iomem *sm;
++	int i;
++	u32 start;
++
++	sm = ioremap(CERRO_PCIE_SM_PHYS, CERRO_PCIE_SM_SIZE);
++	if (!sm) {
++		dev_err(pcie->pci->dev, "cerro: pcie_sm ioremap failed\n");
++		return;
++	}
++
++	/* Match AOSP module_init early PWR overrides */
++	for (i = 0; i < CERRO_PCIE_SM_NUM_INST; i++) {
++		u32 off = i * CERRO_PCIE_SM_INST_STRIDE;
++
++		writel(0x1, sm + CERRO_PCIE_SM_PWR_CTRL + off);
++		writel(0x1, sm + CERRO_PCIE_SM_PWR_MASK + off);
++	}
++	wmb();
++
++	/* msm_pcie_cesta_load_sm_seq: drop overrides, load microcode, start */
++	for (i = 0; i < CERRO_PCIE_SM_NUM_INST; i++) {
++		u32 off = i * CERRO_PCIE_SM_INST_STRIDE;
++
++		writel(0x0, sm + CERRO_PCIE_SM_PWR_CTRL + off);
++		writel(0x0, sm + CERRO_PCIE_SM_PWR_MASK + off);
++	}
++	for (i = 0; i < ARRAY_SIZE(cerro_pcie_sm_seq); i++)
++		writel(cerro_pcie_sm_seq[i], sm + 4 * i);
++	for (i = 0; i < ARRAY_SIZE(cerro_pcie_sm_branch_seq); i++)
++		writel(cerro_pcie_sm_branch_seq[i],
++		       sm + CERRO_PCIE_SM_BRANCH_OFF + 4 * i);
++	start = readl(sm + CERRO_PCIE_SM_START_OFF);
++	writel(start | BIT(0), sm + CERRO_PCIE_SM_START_OFF);
++	wmb();
++
++	dev_info(pcie->pci->dev,
++		 "cerro: pcie_sm seq loaded start=0x%x i0ctrl=0x%x i0mask=0x%x\n",
++		 readl(sm + CERRO_PCIE_SM_START_OFF),
++		 readl(sm + CERRO_PCIE_SM_PWR_CTRL),
++		 readl(sm + CERRO_PCIE_SM_PWR_MASK));
++	iounmap(sm);
++}
++
+ static void qcom_pcie_2_3_2_ltssm_enable(struct qcom_pcie *pcie)
+ {
+ 	u32 val;
+ 
++	/* s5eo: vote D0 again immediately before LTSSM */
++	cerro_pcie_crm_d0(pcie);
++	cerro_pcie_enable_cesta_parf(pcie);
++	cerro_pcie_sm_init(pcie);
++
+ 	/* enable link training */
+ 	val = readl(pcie->parf + PARF_LTSSM);
+ 	val |= LTSSM_EN;
+@@ -1073,6 +1446,19 @@ static int qcom_pcie_init_2_7_0(struct qcom_pcie *pcie)
+ static int qcom_pcie_post_init_2_7_0(struct qcom_pcie *pcie)
+ {
+ 	const struct qcom_pcie_cfg *pcie_cfg = pcie->cfg;
++	u32 val;
++
++	/* s5eo: the sequence that enumerated 17cb:1107 on 2026-08-16 */
++	val = readl(pcie->parf + PARF_PHY_REFCLK);
++	val &= ~PHY_REFCLK_SSP_EN;
++	val |= PHY_REFCLK_USE_PAD;
++	writel(val, pcie->parf + PARF_PHY_REFCLK);
++
++	cerro_pcie_sm_init(pcie);
++	writel(0x365e, pcie->parf + PARF_SYS_CTRL);
++	cerro_pcie_crm_d0(pcie);
++	cerro_pcie_enable_cesta_parf(pcie);
++	cerro_pcie_apply_phy_seq(pcie);
+ 
+ 	if (pcie_cfg->override_no_snoop)
+ 		writel(WR_NO_SNOOP_OVERRIDE_EN | RD_NO_SNOOP_OVERRIDE_EN,
+diff --git a/drivers/pci/pwrctrl/Kconfig b/drivers/pci/pwrctrl/Kconfig
+index 9eec767cd..ecfd49993 100644
+--- a/drivers/pci/pwrctrl/Kconfig
++++ b/drivers/pci/pwrctrl/Kconfig
+@@ -7,9 +7,12 @@ config PCI_PWRCTRL
+ 	tristate
+ 
+ config PCI_PWRCTRL_PWRSEQ
+-	tristate
++	tristate "PCI Power Control via power sequencing (WCN/ath11k/ath12k)"
+ 	select POWER_SEQUENCING
+ 	select PCI_PWRCTRL
++	help
++	  Power-sequenced PCI endpoints such as WCN7850 (ath12k). Prefer Y so
++	  the slot is powered before the PCIe host finishes first link train.
+ 
+ config PCI_PWRCTRL_GENERIC
+ 	tristate "Generic PCI Power Control driver for PCI slots and endpoints"
+diff --git a/drivers/power/supply/qcom_battmgr.c b/drivers/power/supply/qcom_battmgr.c
+index 490137a23..ebee1acbf 100644
+--- a/drivers/power/supply/qcom_battmgr.c
++++ b/drivers/power/supply/qcom_battmgr.c
+@@ -1616,6 +1616,7 @@ static const struct of_device_id qcom_battmgr_of_variants[] = {
+ 	{ .compatible = "qcom,sc8180x-pmic-glink", .data = (void *)QCOM_BATTMGR_SC8280XP },
+ 	{ .compatible = "qcom,sc8280xp-pmic-glink", .data = (void *)QCOM_BATTMGR_SC8280XP },
+ 	{ .compatible = "qcom,sm8550-pmic-glink", .data = (void *)QCOM_BATTMGR_SM8550 },
++	{ .compatible = "qcom,sm8650-pmic-glink", .data = (void *)QCOM_BATTMGR_SM8550 },
+ 	{ .compatible = "qcom,x1e80100-pmic-glink", .data = (void *)QCOM_BATTMGR_X1E80100 },
+ 	/* Unmatched devices falls back to QCOM_BATTMGR_SM8350 */
+ 	{}
+@@ -1658,6 +1659,17 @@ static int qcom_battmgr_probe(struct auxiliary_device *adev,
+ 	else
+ 		battmgr->variant = QCOM_BATTMGR_SM8350;
+ 
++	/*
++	 * SM8350/SM8550 use per-property GET (not BATTMGR_BAT_INFO), so
++	 * power_unit is never filled and stays 0 (= mWh). CHARGE_FULL* then
++	 * always returns -ENODATA even though firmware reports µAh values.
++	 * Cerro/SM8650 matches SM8550 and hits this; force mAh for the
++	 * property-based variants.
++	 */
++	if (battmgr->variant == QCOM_BATTMGR_SM8350 ||
++	    battmgr->variant == QCOM_BATTMGR_SM8550)
++		battmgr->unit = QCOM_BATTMGR_UNIT_mAh;
++
+ 	ret = qcom_battmgr_charge_control_thresholds_init(battmgr);
+ 	if (ret < 0)
+ 		return dev_err_probe(dev, ret,
+diff --git a/drivers/soc/qcom/pmic_glink.c b/drivers/soc/qcom/pmic_glink.c
+index 304226157..5004faa25 100644
+--- a/drivers/soc/qcom/pmic_glink.c
++++ b/drivers/soc/qcom/pmic_glink.c
+@@ -281,7 +281,8 @@ static void pmic_glink_rpmsg_remove(struct rpmsg_device *rpdev)
+ }
+ 
+ static const struct rpmsg_device_id pmic_glink_rpmsg_id_match[] = {
+-	{.name = "PMIC_RTR_ADSP_APPS", .driver_data = true },
++	/* driver_data=false: do not require charger_pd PDR (see pmic_glink_adsp_data) */
++	{.name = "PMIC_RTR_ADSP_APPS", .driver_data = false },
+ 	{.name = "PMIC_RTR_SOCCP_APPS", .driver_data = false },
+ 	{}
+ };
+@@ -393,8 +394,12 @@ static const struct pmic_glink_data pmic_glink_adsp_data = {
+ 	.client_mask = BIT(PMIC_GLINK_CLIENT_BATT) |
+ 		       BIT(PMIC_GLINK_CLIENT_ALTMODE) |
+ 		       BIT(PMIC_GLINK_CLIENT_UCSI),
+-	.charger_pdr_service_name = "tms/servreg",
+-	.charger_pdr_service_path = "msm/adsp/charger_pd",
++	/*
++	 * Upstream waits on msm/adsp/charger_pd via tms/servreg. Cerro's ADSP
++	 * servreg only lists audio/root/sensor — PDR lookup fails with -ENOENT
++	 * and qcom_battmgr stays EAGAIN forever. Drop the PDR gate; RPMSG
++	 * PMIC_RTR_ADSP_APPS presence is enough (same as SOCCP path).
++	 */
+ };
+ 
+ static const struct pmic_glink_data pmic_glink_soccp_data = {
+diff --git a/include/drm/drm_mipi_dsi.h b/include/drm/drm_mipi_dsi.h
+index b429acde4..703b5bb4e 100644
+--- a/include/drm/drm_mipi_dsi.h
++++ b/include/drm/drm_mipi_dsi.h
+@@ -136,6 +136,9 @@ struct mipi_dsi_host *of_find_mipi_dsi_host_by_node(struct device_node *node);
+ #define MIPI_DSI_CLOCK_NON_CONTINUOUS	BIT(10)
+ /* transmit data in low power */
+ #define MIPI_DSI_MODE_LPM		BIT(11)
++
++/* DSC: pack multiple slices into one packet (slice_per_pkt > 1). */
++#define MIPI_DSI_MODE_DSC_ALL_SLICES_IN_PKT	BIT(8)
+ /* transmit data ending at the same time for all lanes within one hsync */
+ #define MIPI_DSI_HS_PKT_END_ALIGNED	BIT(12)
+ 

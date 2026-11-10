@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Cerro KWin Session Stub
+Comment=Allow Plasma reboot/shutdown without kwin_x11
+Exec=/usr/local/bin/cerro-kwin-session-stub.py
+X-KDE-autostart-phase=0
+X-GNOME-Autostart-enabled=true
+OnlyShowIn=KDE;
