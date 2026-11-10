@@ -6,7 +6,8 @@ from qmi_socket import Client,routes
 from sms_store import SmsStore
 
 STATE=pathlib.Path('/var/lib/cerro-cellular-c1');SOCK='/run/cerro-cellular/control.sock'
-OWNER=pwd.getpwnam('user')
+# Stable desktop UID survives an owner-requested login/group rename.
+OWNER=pwd.getpwuid(int(os.environ.get('CERRO_DESKTOP_UID', '1000')))
 
 def notify(value):
     endpoint=os.environ.get('NOTIFY_SOCKET')
