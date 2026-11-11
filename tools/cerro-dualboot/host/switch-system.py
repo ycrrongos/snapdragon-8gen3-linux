@@ -324,7 +324,8 @@ def observe(serial, target, swap, old_boot, seconds):
                 swap.check_ready(now, target)
                 if target == "linux":
                     require("cerro_boot=" in p.run("cat /proc/cmdline"), "Missing Cerro Linux image marker")
-                    p.run("/usr/bin/qbootctl -m")
+                    # Boot success belongs to the real desktop user service.
+                    # An ACM/SSH shell alone must never certify a healthy desktop.
                 swap.phase(target + "_booted")
                 atomic_json(Path(swap.state["backup_dir"]) / (target + "-observed.json"), now)
                 print(f"Verified {target}: same slot {now['slot']}, new boot {now['boot_id']}", flush=True)

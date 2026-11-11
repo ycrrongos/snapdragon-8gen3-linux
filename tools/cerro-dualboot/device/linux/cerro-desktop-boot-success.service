@@ -1,0 +1,14 @@
+[Unit]
+Description=Confirm Cerro boot after the Plasma desktop is ready
+After=plasma-plasmashell.service
+Requisite=plasma-plasmashell.service
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pkexec /usr/local/libexec/cerro-switch/desktop-boot-success.py
+RemainAfterExit=yes
+TimeoutStartSec=45
+
+[Install]
+WantedBy=plasma-workspace.target

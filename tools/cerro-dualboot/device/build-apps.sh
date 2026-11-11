@@ -27,8 +27,8 @@ fi
 "$bt/apksigner" verify --verbose "$out/cerro-system-switch-android-v2.apk" > "$out/signature-verification.txt"
 package="$out/cerro-system-switch-linux-v2"
 mkdir -p "$package/linux"
-cp "$base/switch-backend.sh" "$base/import-host-state.py" "$base/install-linux.sh" "$base/README.md" "$package/"
-cp "$base/linux/system-switch.py" "$base/linux/org.cerro.SystemSwitch.desktop" "$base/linux/org.cerro.same-slot-switch.policy" "$package/linux/"
+cp "$base/switch-backend.sh" "$base/import-host-state.py" "$base/install-linux.sh" "$base/install-desktop-success.sh" "$base/README.md" "$package/"
+cp "$base/linux/system-switch.py" "$base/linux/org.cerro.SystemSwitch.desktop" "$base/linux/org.cerro.same-slot-switch.policy" "$base/linux/desktop-boot-success.py" "$base/linux/cerro-desktop-boot-success.service" "$base/linux/org.cerro.desktop-boot-success.policy" "$package/linux/"
 tar -czf "$out/cerro-system-switch-linux-v2.tar.gz" -C "$out" "$(basename "$package")"
 (cd "$out" && sha256sum cerro-system-switch-android-v2.apk cerro-system-switch-linux-v2.tar.gz > SHA256SUMS)
 cat "$out/SHA256SUMS"

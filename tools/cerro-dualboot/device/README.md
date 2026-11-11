@@ -67,4 +67,25 @@ ANDROID_SDK_ROOT=/path/to/Android/Sdk tools/cerro-dualboot/device/build-apps.sh
 签名使用本地生成的开发密钥；保留本机keystore以便更新，同名旧APK若签名不同不能直接覆盖安装。
 密钥和APK均不入Git。该脚本只编译/签名/打包，没有adb install、root运行、刷机或手机连接操作。
 
-本地检查包括 Shell/Python 语法、Java 编译与 APK 签名、8项电脑互切故障场景。实机状态以文首及功能笔记为准。
+本地检查包括 Shell/Python 语法、Java 编译与 APK 签名、8项电脑互切故障场景和7项桌面确认保护条件。实机状态以文首及功能笔记为准。
+
+## 进入桌面后确认启动成功
+
+**本地源码/保护测试已通过；当前仍等待手机重连后部署和冷启动验收。**
+
+安装包同时安装用户服务 `cerro-desktop-boot-success.service`，由正常
+`plasma-workspace.target` 拉起并排序在 `plasma-plasmashell.service` 之后。
+不以 initramfs、SDDM active 或固定延时作为成功标准。root helper 还会核对
+调用者存在 active、本地 Wayland/X11 登录，以及其真实 plasmashell/KWin DBus
+进程归属、Cerro 标记、current/active 槽一致，随后仅执行原生 `qbootctl -m`。
+读回 successful 与 bootable 后才记录 `/run/cerro-desktop-boot-success.json`，
+用户服务日志可通过 `journalctl --user -u cerro-desktop-boot-success` 查看。
+
+这里使用 Qualcomm 标准“本次启动成功”标记，让已进入桌面的正常启动不再
+继续消耗失败重试额度；不是另外做一个计数器，也不调用 set-active 或重写镜像。
+若桌面未起来、只有 SSH/串口、槽位不一致，确认失败且不写成功标记。
+原有 initramfs 的早期 qbootctl 自动标记仍保持禁用；电脑脚本观察到 ACM/SSH 时也不再提前标记成功。
+
+C3 配置改变了模块 ABI，现机必须配套 `linux-waydroid-netd-c3-daily.img`
+及全部214个匹配模块；不得把旧C1 Image与现模块混用。Android共享目录
+里的Linux镜像亦需与实际rootfs模块配套。
