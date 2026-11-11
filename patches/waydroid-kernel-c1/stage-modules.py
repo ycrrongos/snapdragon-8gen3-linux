@@ -9,7 +9,9 @@ import subprocess
 
 WANTED=('veth','bridge','br_netfilter','overlay','nf_conntrack','nf_nat','ip_tables',
         'iptable_filter','iptable_nat','iptable_mangle','ip6_tables','ip6table_filter',
-        'ip6table_nat','ip6table_mangle','xt_MASQUERADE','xt_CHECKSUM','xt_comment','xt_conntrack','xt_tcpudp')
+        'ip6table_nat','ip6table_mangle','xt_MASQUERADE','xt_CHECKSUM','xt_comment','xt_conntrack','xt_tcpudp',
+        'nfnetlink_log','xt_bpf','xt_mark','iptable_raw','ip6table_raw',
+        'ipt_REJECT','ip6t_REJECT','xt_policy','xfrm_user')
 def info(path,field):
     return subprocess.check_output(['modinfo','-F',field,str(path)],text=True).strip()
 p=argparse.ArgumentParser(description=__doc__);p.add_argument('kernel',type=Path);p.add_argument('destination',type=Path);a=p.parse_args()
