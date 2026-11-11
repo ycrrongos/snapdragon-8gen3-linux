@@ -1,6 +1,6 @@
 # Cerro Android / Linux 机内系统切换应用
 
-**当前交付：应用源码、已构建 APK 与 Linux 安装包。用户要求暂不测试，因此没有在手机安装、运行或试刷。不能将构建成功表述为机内切换已验收。**
+**2026-11-11：用户已授权实机测试，当前优先 Linux 端。已安装 Linux GUI、导入电脑清单并读回核对 Android 缓存；实际切换后的启动与同槽验证尚在采集，不以旧电脑脚本测试代替 GUI 验收。Android APK 的 root 与完整互切验收单独记录。**
 
 ## Android 使用方式
 
@@ -22,7 +22,7 @@ Android写入使用前台服务和唤醒锁；离开界面不自动重放写入�
 
 ## Linux 使用方式
 
-构建包解压后，手动执行（本次未执行安装）：
+构建包解压后执行：
 
 ```sh
 sudo apt-get install python3-gi gir1.2-gtk-3.0 pkexec
@@ -41,8 +41,9 @@ root后端检查同一设备/活动槽/Linux根FS UUID和缓存两文件SHA，�
 
 ## 跨系统状态与恢复边界
 
-Android先以root挂载已有`cerro_linux` ext4根分区，仅将备份/清单文件写到其中的
-`/var/lib/cerro-dualboot-device`。Linux直接访问同一目录。Android的加密用户数据无须被Linux解密。
+Android先以root挂载已有`cerro_linux` ext4根分区，识别顶层 Debian 或本机的
+`debian-root` 子目录；备份/清单写到真实 Debian 根内的
+`/var/lib/cerro-dualboot-device`。Linux直接访问同一目录，不能写到外壳根的同名目录。Android的加密用户数据无须被Linux解密。
 若无法挂载或UUID/分区尺寸不符，在改写boot/dtbo前停止。
 
 每轮备份目录带`slot_a`/`slot_b`文件名、现场LABEL、SHA256SUMS；manifest采用原子替换、
@@ -66,6 +67,4 @@ ANDROID_SDK_ROOT=/path/to/Android/Sdk tools/cerro-dualboot/device/build-apps.sh
 签名使用本地生成的开发密钥；保留本机keystore以便更新，同名旧APK若签名不同不能直接覆盖安装。
 密钥和APK均不入Git。该脚本只编译/签名/打包，没有adb install、root运行、刷机或手机连接操作。
 
-当前仅做host端Shell/Python语法检查、Java编译、APK签名校验、包内容与代码审查。
-**未做应用执行或分区模拟/实机测试，用户明确暂不测试。**
-未来实机需单独开卡，验证root实现/Android SELinux与挂载能力、polkit、两个方向、中断和读回。
+本地检查包括 Shell/Python 语法、Java 编译与 APK 签名、8项电脑互切故障场景。实机状态以文首及功能笔记为准。

@@ -19,8 +19,8 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_IMAGE = ROOT / "build/dualboot/linux-waydroid-c1-daily.img"
-DEFAULT_SHA = "18886d05c015d60d5daf15ac76485a48ac2c16f684d837253c77ebc8b0ce535a"
+DEFAULT_IMAGE = ROOT / "build/dualboot/linux-waydroid-netd-c3-daily.img"
+DEFAULT_SHA = "0d0a6691ab72a3edc964b7dccc6ebde6714720b20830aa014c25d256ffd641f2"
 KINDS = ("boot", "dtbo")
 
 

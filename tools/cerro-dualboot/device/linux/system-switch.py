@@ -15,7 +15,7 @@ POOL = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 class App(Gtk.Window):
     def __init__(self):
         super().__init__(title='系统切换')
-        self.set_default_size(400, 640)
+        self.set_default_size(440, 480)
         self.set_border_width(20)
         self.working = False
         self.writing = False
@@ -41,7 +41,7 @@ class App(Gtk.Window):
         scroller = Gtk.ScrolledWindow()
         scroller.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.output = Gtk.TextView(editable=False, cursor_visible=False, wrap_mode=Gtk.WrapMode.WORD_CHAR)
-        self.output.get_buffer().set_text('构建版，尚未实机测试。\n\n若当前 Linux 由电脑端脚本切入，可先导入电脑备份目录里的 state.json；应用会核对设备、槽位、Linux 根分区和 Android 缓存。\n\n机内备份和状态保存在 /var/lib/cerro-dualboot-device，保留全部备份以便恢复。')
+        self.output.get_buffer().set_text('若当前 Linux 由电脑端脚本切入，可先导入电脑备份目录里的 state.json；应用会核对设备、槽位、Linux 根分区和 Android 缓存。\n\n机内备份和状态保存在 /var/lib/cerro-dualboot-device，保留全部备份以便恢复。')
         scroller.add(self.output)
         root.pack_start(scroller, True, True, 0)
 

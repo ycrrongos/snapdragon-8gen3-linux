@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 # Same-slot boot/dtbo swap, shared by Android root and Linux polkit apps.
-# BUILD-ONLY CHECKPOINT: not exercised on the phone yet.
+# Live acceptance status is recorded in README.md; writes always require validation.
 set -eu
 umask 077
 PATH=/usr/sbin:/usr/bin:/sbin:/bin:/system/bin:/system/xbin:/vendor/bin
@@ -61,7 +61,19 @@ connect_state() {
  if [ "$OS" = android ]; then
   MOUNT_POINT=$(mktemp -d /data/local/tmp/cerro-switch.XXXXXX)
   mount -t ext4 -o nosuid,nodev "$ROOT_PART" "$MOUNT_POINT" || fail 'Linux 根分区无法挂载，尚未改写 boot/dtbo'
-  STATE=$MOUNT_POINT/var/lib/cerro-dualboot-device
+  # Existing Cerro installs bind/switch into debian-root inside the ext4
+  # partition. Resolve that same live root before choosing shared state.
+  if [ -d "$MOUNT_POINT/debian-root" ] && [ ! -L "$MOUNT_POINT/debian-root" ] &&
+     [ -f "$MOUNT_POINT/debian-root/etc/debian_version" ] &&
+     [ -f "$MOUNT_POINT/debian-root/usr/lib/systemd/systemd" ]; then
+   LIVE_ROOT=$MOUNT_POINT/debian-root
+  elif [ -f "$MOUNT_POINT/etc/debian_version" ] &&
+       [ -f "$MOUNT_POINT/usr/lib/systemd/systemd" ]; then
+   LIVE_ROOT=$MOUNT_POINT
+  else
+   fail '挂载分区中找不到已安装的 Debian 根目录，尚未改写 boot/dtbo'
+  fi
+  STATE=$LIVE_ROOT/var/lib/cerro-dualboot-device
  else
   # Verify this is the mounted Linux rootfs, not a different host or chroot.
   rootdev=$(awk '$2=="/" {print $1}' /proc/mounts | head -n1)
