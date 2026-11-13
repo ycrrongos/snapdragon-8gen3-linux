@@ -4,10 +4,9 @@ This repository ports mainline Linux to SM8650 phones; only Cerro is tested.
 Read docs/STATUS.md, docs/BUILDING.md and kernel/source.lock.json first.
 
 - Device-local switch apps initially had a build-only checkpoint. The owner has now authorized real phone testing; read docs/DEVICE-SWITCH.md for current evidence.
-- Current queue: Waydroid kernel support, then front/ultrawide/tele cameras and
-  remaining main-camera quality/UI work, then accelerometer. The owner accepted
+- Current queue: consult docs/STATUS.md and latest user direction. Waydroid is paused; local switching and desktop boot confirmation remain pending. Camera quality/multicamera and accelerometer are backlog. The owner accepted
   the main camera as basically usable; do not claim Android parity.
-- No subagents for phone/boot/kernel work. One variable and a written hypothesis,
+- No subagents for phone/boot/kernel work. Unknown hardware/risky writes/causal experiments use one variable; justified independent fixes may share a candidate. Record a hypothesis,
   falsifier, rollback and regression list per experiment.
 - Preserve display/early display, DP, Wi-Fi, dual SIM SMS/data, battery and HiFi.
   Calls are outside the active task.
@@ -28,5 +27,6 @@ Read docs/STATUS.md, docs/BUILDING.md and kernel/source.lock.json first.
   actual configured GitHub identity; do not add AI co-author/bot trailers. Do not
   rewrite upstream author notices or attribute external contributions to yourself.
 - Every ~15 tool calls, before a flash and after context compaction, reread this
-  contract and the current feature note. Three failures of one method require
-  research and a different hypothesis before continuing.
+  contract and the current feature note. Review at the second same-class failure; research and change hypothesis before a third attempt. Set investigation budgets and stop writes on safety or lost recovery.
+
+- Desktop boot confirmation must follow the actual session (Plasma or Win10X), not SDDM active alone. Recovery uses matched boot/modules ABI/config and a predeclared trigger; never an old Image alone.
