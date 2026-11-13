@@ -3903,7 +3903,7 @@ index 9eec767cd..ecfd49993 100644
  config PCI_PWRCTRL_GENERIC
  	tristate "Generic PCI Power Control driver for PCI slots and endpoints"
 diff --git a/drivers/power/supply/qcom_battmgr.c b/drivers/power/supply/qcom_battmgr.c
-index 490137a23..21f50ceb3 100644
+index 490137a23..03d9a7acc 100644
 --- a/drivers/power/supply/qcom_battmgr.c
 +++ b/drivers/power/supply/qcom_battmgr.c
 @@ -974,7 +974,7 @@ static const u8 sm8350_usb_prop_map[] = {
@@ -3915,7 +3915,50 @@ index 490137a23..21f50ceb3 100644
  };
  
  static int qcom_battmgr_usb_sm8350_update(struct qcom_battmgr *battmgr,
-@@ -1512,7 +1512,7 @@ static void qcom_battmgr_sm8350_callback(struct qcom_battmgr *battmgr,
+@@ -1064,6 +1064,33 @@ static const struct power_supply_desc sc8280xp_usb_psy_desc = {
+ 		     BIT(POWER_SUPPLY_USB_TYPE_APPLE_BRICK_ID),
+ };
+ 
++static int qcom_battmgr_usb_set_property(struct power_supply *psy,
++				       enum power_supply_property psp,
++				       const union power_supply_propval *pval)
++{
++	struct qcom_battmgr *battmgr = power_supply_get_drvdata(psy);
++	int ret;
++
++	if (!battmgr->service_up)
++		return -EAGAIN;
++
++	if (psp != POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT || pval->intval < 0)
++		return -EINVAL;
++
++	mutex_lock(&battmgr->lock);
++	ret = qcom_battmgr_request_property(battmgr, BATTMGR_USB_PROPERTY_SET,
++					  USB_INPUT_CURR_LIMIT, pval->intval);
++	mutex_unlock(&battmgr->lock);
++
++	return ret;
++}
++
++static int qcom_battmgr_usb_is_writeable(struct power_supply *psy,
++				       enum power_supply_property psp)
++{
++	return psp == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT;
++}
++
+ static const enum power_supply_property sm8350_usb_props[] = {
+ 	POWER_SUPPLY_PROP_ONLINE,
+ 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
+@@ -1080,6 +1107,8 @@ static const struct power_supply_desc sm8350_usb_psy_desc = {
+ 	.properties = sm8350_usb_props,
+ 	.num_properties = ARRAY_SIZE(sm8350_usb_props),
+ 	.get_property = qcom_battmgr_usb_get_property,
++	.set_property = qcom_battmgr_usb_set_property,
++	.property_is_writeable = qcom_battmgr_usb_is_writeable,
+ 	.usb_types = BIT(POWER_SUPPLY_USB_TYPE_UNKNOWN) |
+ 		     BIT(POWER_SUPPLY_USB_TYPE_SDP)     |
+ 		     BIT(POWER_SUPPLY_USB_TYPE_DCP)     |
+@@ -1512,7 +1541,7 @@ static void qcom_battmgr_sm8350_callback(struct qcom_battmgr *battmgr,
  		case USB_INPUT_CURR_LIMIT:
  			battmgr->usb.current_limit = le32_to_cpu(resp->intval.value);
  			break;
@@ -3924,7 +3967,15 @@ index 490137a23..21f50ceb3 100644
  			battmgr->usb.usb_type = le32_to_cpu(resp->intval.value);
  			break;
  		default:
-@@ -1616,6 +1616,7 @@ static const struct of_device_id qcom_battmgr_of_variants[] = {
+@@ -1557,6 +1586,7 @@ static void qcom_battmgr_sm8350_callback(struct qcom_battmgr *battmgr,
+ 		break;
+ 	case BATTMGR_REQUEST_NOTIFICATION:
+ 	case BATTMGR_CHG_CTRL_LIMIT_EN:
++	case BATTMGR_USB_PROPERTY_SET:
+ 		battmgr->error = 0;
+ 		break;
+ 	default:
+@@ -1616,6 +1646,7 @@ static const struct of_device_id qcom_battmgr_of_variants[] = {
  	{ .compatible = "qcom,sc8180x-pmic-glink", .data = (void *)QCOM_BATTMGR_SC8280XP },
  	{ .compatible = "qcom,sc8280xp-pmic-glink", .data = (void *)QCOM_BATTMGR_SC8280XP },
  	{ .compatible = "qcom,sm8550-pmic-glink", .data = (void *)QCOM_BATTMGR_SM8550 },
@@ -3932,7 +3983,7 @@ index 490137a23..21f50ceb3 100644
  	{ .compatible = "qcom,x1e80100-pmic-glink", .data = (void *)QCOM_BATTMGR_X1E80100 },
  	/* Unmatched devices falls back to QCOM_BATTMGR_SM8350 */
  	{}
-@@ -1658,6 +1659,17 @@ static int qcom_battmgr_probe(struct auxiliary_device *adev,
+@@ -1658,6 +1689,17 @@ static int qcom_battmgr_probe(struct auxiliary_device *adev,
  	else
  		battmgr->variant = QCOM_BATTMGR_SM8350;
  

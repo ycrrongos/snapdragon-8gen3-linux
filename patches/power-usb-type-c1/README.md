@@ -32,3 +32,13 @@ provided because source/slot/ABI preconditions are deployment-specific.
 Live reload with65W source reportsPD at unchanged~25W, same boot/SSH/desktop.
 Persistent module installed; cold reboot/replug/long charging trend evidence is
 tracked in notes/features/20261113-charging.md, not inferred from module loading.
+
+## Standard input-current interface (C2)
+
+Also integrates Joonhoe Kim's upstream setter:
+https://lkml.iu.edu/hypermail/linux/kernel/2610.0/12428.html . It exposes the root-only
+standard input_current_limit property and completes USB_PROPERTY_SET responses.
+No unconditional current increase is included. A negative request is rejected
+before firmware I/O. C2module was live-loaded with the sameC3configuration; PD
+input remains unchanged. A positive limit request requires source-specific
+capability evidence and actual current/readback validation, not just write success.
