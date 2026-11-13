@@ -1,0 +1,2 @@
+# Normal coldplug + hotplug/change; idempotent readback avoids event/write loops.
+SUBSYSTEM=="power_supply", KERNEL=="qcom-battmgr-usb", ACTION=="add|change", RUN+="/usr/local/libexec/cerro-usb-current.py"
