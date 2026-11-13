@@ -5,6 +5,6 @@ Pinned installed base: 826fb98cd82fa87e61367d0827ddae9fc300d442 (MIT; retain ups
 
 The installed user-level skill has local policy corrections. This patch records
 those changes without vendoring the whole upstream skill. Apply only to that
-base after checking `git apply --check`; on upstream update review/rebase the
+base after checking `git apply --unidiff-zero --check` (apply with `git apply --unidiff-zero`); on upstream update review/rebase the
 patch rather than silently overwriting either version. The actual installation
 is /home/rong/.agents/skills/android-mainline-port; no phone deployment occurs.
